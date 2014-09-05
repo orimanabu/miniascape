@@ -32,6 +32,7 @@ common:
 
   openstack:
     use_rdo: false
+    use_local: true
 
   packstack:
     #pwd: &packstack_pw 06b5ae7b81e04874a2361

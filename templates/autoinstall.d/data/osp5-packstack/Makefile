@@ -27,7 +27,13 @@ rhnreg_ks_OPTIONS ?= --activationkey=$(RHN_AKEYS)
 endif
 
 pre_install_OPENSTACK_RPMS ?= yum install -y yum-plugin-priorities
-{% if not openstack.use_rdo -%}
+{% if openstack.use_rdo -%}
+make_repos_available ?= yum install -y http://rdo.fedorapeople.org/openstack-havana/rdo-release-havana.rpm
+install_OPENSTACK_RPMS ?= $(make_repos_available) && yum install -y openstack-packstack
+{% elif openstack.use_local -%}
+make_repos_available ?= cp $(WORKDIR)/localrepo.repo /etc/yum.repos.d
+install_OPENSTACK_RPMS ?= $(make_repos_available) && yum install -y openstack-packstack
+{% else %}
 make_repos_available ?= test -f /etc/sysconfig/rhn/systemid || rhnreg_ks --profilename=$(RHN_PROFILENAME) -v --force $(rhnreg_ks_OPTIONS)
 install_OPENSTACK_RPMS ?= $(make_repos_available) && yum install -y \
 python-sphinx python-docutils python-jinja2 \
@@ -45,9 +51,6 @@ nrpe nagios-plugins-nrpe nagios-plugins-ping \
 puppet \
 openstack-packstack \
 $(NULL)
-{% else %}
-make_repos_available ?= yum install -y http://rdo.fedorapeople.org/openstack-havana/rdo-release-havana.rpm
-install_OPENSTACK_RPMS ?= $(make_repos_available) && yum install -y openstack-packstack
 {% endif %}
 
 ## TODO: Make the following default for RHOS installation ?

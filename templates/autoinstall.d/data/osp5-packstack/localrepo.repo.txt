@@ -1,0 +1,11 @@
+[local-rhel-7-server-rpms]
+name=local rhel-7-server-rpms
+baseurl=http://{{ localreposerver }}/repos/rhel-7-server-rpms
+enabled=1
+gpgcheck=0
+
+[local-rhel-7-server-openstack-5.0-rpms]
+name=local rhel-7-server-openstack-5.0-rpms
+baseurl=http://{{ localreposerver }}/repos/rhel-7-server-openstack-5.0-rpms
+enabled=1
+gpgcheck=0
