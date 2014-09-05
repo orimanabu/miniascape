@@ -1,6 +1,8 @@
 # network aliases (see conf/openstack/10_networks.yml):
-public_network: &public_network openstack-public
-private_network: &private_network openstack-private
+management_network: &management_network mgmt
+storage_network: &storage_network storage
+tenant_network: &tenant_network tenant
+external_network: &external_network external
 
 common:
   virtinst:
@@ -52,40 +54,60 @@ guests:
             - *openstack_allinone_0_ip_0
 
   - name: controller
-    description: OpenStack controller node
+    description: RHEL-OSP5 controller node
 
     setup_data:
       - src: data/openstack/Makefile
         dst: Makefile
       - src: data/openstack/controller_answers.txt
         dst: answers.txt
+      - src: data/openstack/localrepo.repo.txt
+        dst: localrepo.repo
 
     templates:
       autoinst:
-        src: autoinstall.d/openstack-controller-ks.cfg
+        src: autoinstall.d/osp5-controller-ks.cfg
+
+    disks:
+      - pool: default
+        format: qcow2
+        cache: none
+        size: 20  # system
+        bus: scsi
+      - pool: default
+        vol: cinder-volumes-controller-1
+        format: qcow2
+        cache: none
+        size: 11  # cinder-volumes
+        bus: scsi
 
     guests:
-      - hostname: controller-0
-        fqdn: controller-0.openstack.example.com
-        ip: &openstack_controller_0_ip_0 192.168.200.20
+      - hostname: controller-1
+        fqdn: controller-1.mgmt.local
+        ip: &openstack_controller_1_ip_0 10.0.1.11
         interfaces:
-          # eth0: access from/to public network for this openstack node:
-          - mac: "52:54:00:16:82:20"
-            ip: *openstack_controller_0_ip_0
-            network: *public_network
+          # eth0: mgmt
+          - mac: "52:54:10:01:00:11"
+            ip: *openstack_controller_1_ip_0
+            network: *management_network
 
-          # eth1: guests access to public network via this (public side)
-          - mac: "52:54:00:16:82:21"
-            ip: 192.168.200.21
-            network: *public_network
+          # eth1: storage
+          - mac: "52:54:10:00:00:11"
+            ip: 10.0.0.11
+            network: *storage_network
 
-          # eth2: guests access to public network via this (private side)
-          - mac: "52:54:00:68:32:20"
-            ip: 192.168.32.20
-            network: *private_network
+          # eth2: tenant
+          - mac: "52:54:10:02:00:11"
+            ip: 10.0.2.11
+            network: *tenant_network
+
+          # eth3: external
+          - mac: "52:54:10:03:00:11"
+            ip: 172.16.99.11
+            network: *external_network
 
         openstack_compute_nodes:
-          - &openstack_compute_0_ip_0 192.168.200.31
+          - &openstack_compute_1_ip_0 &openstack_compute_2_ip_0
 
         packstack:
           controller_ip: *openstack_controller_0_ip_0
@@ -97,24 +119,48 @@ guests:
 
     templates:
       autoinst:
-        src: autoinstall.d/openstack-compute-ks.cfg
+        src: autoinstall.d/osp5-compute-ks.cfg
 
     virtinst:
       cpu: host
 
     guests:
-      - hostname: compute-0
-        fqdn: compute-0.openstack.example.com
-        ip: *openstack_compute_0_ip_0
+      - hostname: compute-1
+        fqdn: compute-1.mgmt.local
+        ip: *openstack_compute_1_ip_0 10.0.1.101
         interfaces:
-          # eth0: access from/to public network for this openstack node:
-          - mac: "52:54:00:16:82:30"
-            ip: *openstack_compute_0_ip_0
-            network: *public_network
+          # eth0: mgmt
+          - mac: "52:54:10:01:01:01"
+            ip: *openstack_compute_1_ip_0
+            network: *management_network
 
-          # eth1: guests access to public network via this (private side)
-          - mac: "52:54:00:68:32:30"
-            ip: 192.168.32.30
-            network: *private_network
+          # eth1: storage
+          - mac: "52:54:10:00:01:01"
+            ip: 10.0.0.101
+            network: *storage_network
+
+          # eth2: tenant
+          - mac: "52:54:10:02:01:01"
+            ip: 10.0.2.101
+            network: *tenant_network
+
+      - hostname: compute-2
+        fqdn: compute-2.mgmt.local
+        ip: *openstack_compute_2_ip_0 10.0.1.102
+        interfaces:
+          # eth0: mgmt
+          - mac: "52:54:10:01:01:02"
+            ip: *openstack_compute_2_ip_0
+            network: *management_network
+
+          # eth1: storage
+          - mac: "52:54:10:00:01:02"
+            ip: 10.0.0.102
+            network: *storage_network
+
+          # eth2: tenant
+          - mac: "52:54:10:02:01:02"
+            ip: 10.0.2.102
+            network: *tenant_network
 
 # vim:sw=2:ts=2:et:

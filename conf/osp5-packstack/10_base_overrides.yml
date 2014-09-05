@@ -5,15 +5,21 @@
 # * http://openstack.redhat.com/Using_VXLAN_Tenant_Networks
 # * etc
 
-site: openstack
+site: osp5
 
 common:
+  rootpw: redhat
   disks:
     - pool: default
       format: qcow2
       cache: none
-      size: 100
+#      size: 100
+      size: 20
       bus: scsi
+
+  partition: |
+    autopart
+    ignoredisk --only-use=sda
 
   rhn:
   #  username: foo@m2.local
@@ -28,55 +34,57 @@ common:
     use_rdo: false
 
   packstack:
+    #pwd: &packstack_pw 06b5ae7b81e04874a2361
+
     rhn_activationkey: *rhn_activationkey
     nova:
       #db_pw: *packstack_pw
       #ks_pw: *packstack_pw
-      pub_if: eth0
-      private_if: eth1
-      network:
-        fixedrange: 192.168.32.0/24  # openstack-private network
-        floatrange: 10.3.4.0/22      # Not used w/ neutron-based (default)
+      pub_if: eth3
+      private_if: eth2
+#      network:
+#        fixedrange: 192.168.32.0/24  # openstack-private network
+#        floatrange: 10.3.4.0/22      # Not used w/ neutron-based (default)
                                      # network in actual.
 
     neutron:
-      #db_pw: *packstack_pw
-      #ks_pw: *packstack_pw
-      #metadata_pw: *packstack_pw
+      db_pw: neutron
+      ks_pw: neutron
+      metadata_pw: neutron
       network:
         # see http://openstack.redhat.com/Floating_IP_range
-        floatrange: 192.168.200.56/29  # 192.168.200.56-63 (57-62)
+        floatrange: 172.16.99.56/29  # 192.168.200.56-63 (57-62)
 
     demo:
       #floatrange: ...
 
-    #pwd: &packstack_pw 06b5ae7b81e04874a2361
-
     mysql:
+      pw: mysql
+#    qpid:
       #pw: *packstack_pw
-    qpid:
-      #pw: *packstack_pw
+    rabbitmq:
+      pw: rabbitmq
     keystone:
-      #db_pw: *packstack_pw
-      #admin_token: *packstack_pw
-      #admin_pw: *packstack_pw
-      #demo_pw: *packstack_pw
+      db_pw: keystone
+      admin_token: 346fc1eb96dd43f68efa197874fbd764
+      admin_pw: admin
+      demo_pw: demo
     swift:
-      #db_pw: *packstack_pw
-      #ks_pw: *packstack_pw
+      db_pw: swift
+      ks_pw: swift
     heat:
-      #db_pw: *packstack_pw
-      #ks_pw: *packstack_pw
+      db_pw: heat
+      ks_pw: heat
     ceilometer:
-      #db_pw: *packstack_pw
-      #ks_pw: *packstack_pw
+      db_pw: ceilometer
+      ks_pw: ceilometer
     glance:
-      #db_pw: *packstack_pw
-      #ks_pw: *packstack_pw
+      db_pw: glance
+      ks_pw: glance
     cinder:
-      #db_pw: *packstack_pw
-      #ks_pw: *packstack_pw
+      db_pw: cinder
+      ks_pw: cinder
     nagios:
-      #pw: *packstack_pw
+      pw: nagios
 
 # vim:sw=2:ts=2:et:

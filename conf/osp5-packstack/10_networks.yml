@@ -17,34 +17,55 @@ networks:
   # subnet for floating ips assigned for guests managed with openstack:
   # 192.168.200.56/29, 192.168.200.56-63 (57-62)
   #
-  - name: openstack-public
+  - name: external
     mode: nat
-    bridge: virbr200
+    bridge: virbr390
     domain: *domain
     gateway: *gateway
     netmask: *netmask
-    network: 192.168.200.0
+    network: 172.16.99.0
 
     dhcp:
-      start: 192.168.200.200
-      end: 192.168.200.250
+      start: 172.16.99.220
+      end: 172.16.99.249
       static:
-        start: 192.168.200.10
-        end: 192.168.200.50
+        start: 172.16.99.10
+        end: 172.16.99.219
 
-  # Network for guests managed with openstack
-  # (address is taken from CL210 default)
-  - name: openstack-private
+  # mgmt
+  - name: mgmt
     mode: nat
-    bridge: virbr32
-    gateway: 192.168.32.254
+    bridge: virbr-mgmt
+    gateway: 10.0.1.254
     netmask: *netmask
-    network: 192.168.32.0
+    network: 10.0.1.0
     dhcp:
-      start: 192.168.32.200
-      end: 192.168.32.250
+      start: 10.0.1.220
+      end: 10.0.1.249
       static:
-        start: 192.168.32.10
-        end: 192.168.32.50
+        start: 10.0.1.10
+        end: 10.0.1.219
+
+  # storage
+  - name: storage
+    mode: nat
+    bridge: virbr-storage
+    gateway: 10.0.0.254
+    netmask: *netmask
+    network: 10.0.0.0
+    dhcp:
+      start: 10.0.0.220
+      end: 10.0.0.249
+      static:
+        start: 10.0.0.10
+        end: 10.0.0.219
+
+  # tenant
+  - name: tenant
+    mode: nat
+    bridge: virbr-tenant
+    gateway: 10.0.2.254
+    netmask: *netmask
+    network: 10.0.2.0
 
 # vim:sw=2:ts=2:et:
