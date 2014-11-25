@@ -1,0 +1,21 @@
+#!/bin/bash
+
+source ./subr.sh
+
+region={{ region }}
+#packstack --answer-file=setup/answer_manual.txt
+
+for node in {{ packstack.compute_ips[0] }} ; do
+	echo "==> ${node}"
+	ssh ${ssh_options} ${node} uptime
+	ssh ${ssh_options} ${node} openstack-config --get /etc/nova/nova.conf libvirt virt_type
+	ssh ${ssh_options} ${node} openstack-config --set /etc/nova/nova.conf libvirt virt_type kvm
+	ssh ${ssh_options} ${node} openstack-config --get /etc/nova/nova.conf libvirt virt_type
+done
+
+for user in demo "test"; do
+	source /root/keystonerc_admin
+	keystone --os-region-name ${region} user-list | awk '{print $4}' | grep ${user} || bash -x ./user_create.sh ${user} ${user} ${user} ${user}
+
+	./tenant_setup.sh ${user}
+done

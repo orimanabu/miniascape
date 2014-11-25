@@ -1,0 +1,40 @@
+#!/bin/bash
+
+echo "=> cinder"
+echo "==> /etc/cinder/cinder.conf"
+f=/etc/cinder/cinder.conf
+test -f $f.save || cp $f $f.save
+openstack-config --set $f DEFAULT volume_driver cinder.volume.drivers.glusterfs.GlusterfsDriver
+openstack-config --set $f DEFAULT glusterfs_shares_config /etc/cinder/shares.conf
+openstack-config --set $f DEFAULT glusterfs_mount_point_base /var/lib/cinder/volumes
+
+echo "==> /etc/cinder/shares.conf"
+f=/etc/cinder/shares.conf
+test -f $f.save || cp $f $f.save
+cat > $f <<END
+rhs01-1.storage.local:/cinder-volume
+END
+
+echo "==> restarting service"
+openstack-service restart openstack-cinder-api
+openstack-service restart openstack-cinder-volume
+openstack-service restart openstack-cinder-scheduler
+
+echo "=> glance"
+glancedir=/mnt/gluster/glance/images/
+for f in /etc/glance/glance-api.conf /etc/glance/glance-cache.conf; do
+	test -f $f.save || cp $f $f.save
+	echo "==> $f"
+	openstack-config --set $f DEFAULT filesystem_store_datadir ${glancedir}
+done
+
+mountpoint=/mnt/gluster
+imagedir=${mountpoint}/glance/images
+mkdir -p ${imagedir}
+chown -R glance:glance ${mountpoint}/glance
+echo "==> mountpoint: ${mountpoint}"
+mount -t glusterfs {{ rhs.nodes[0] }}:/glance-volume ${mountpoint}
+grep ${mountpoint} /etc/fstab || echo "{{ rhs.nodes[0] }}:/glance-volume ${mountpoint} defaults,_netdev 0 0" >> /etc/fstab
+
+echo "==> restarting service"
+openstack-service restart openstack-glance-api

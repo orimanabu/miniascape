@@ -1,0 +1,78 @@
+#!/bin/sh
+
+source ./subr.sh
+
+vip={{ keystone_ha.service_ip }}
+master={{ keystone_mysql.master.ip }}
+slave={{ keystone_mysql.slave.ip }}
+controller={{ packstack.controller_ip }}
+compute={{ packstack.compute_ips[0] }}
+
+echo "=> master/slave independent settings"
+for host in ${master} ${slave}; do
+	echo "==> [${host}] install packages"
+	do_command -r ${host} yum install -y mariadb-galera-server openstack-keystone openstack-utils openstack-selinux
+#	do_command -r ${host} yum install -y rabbitmq-server
+
+	echo "==> [${host}] keystone config"
+	# [DEFAULT]
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT admin_token 346fc1eb96dd43f68efa197874fbd764
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT public_bind_host 0.0.0.0
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT admin_bind_host 0.0.0.0
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT compute_port 8774
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT admin_port 35357
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT public_port 5000
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_host localhost
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_port 5672
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_hosts localhost:5672
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_userid guest
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_password guest
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_virtual_host /
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT rabbit_ha_queues False
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT debug False
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT verbose True
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT log_dir /var/log/keystone
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf DEFAULT use_syslog False
+	# [catalog]
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf catalog template_file /etc/keystone/default_catalog.templates
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf catalog driver keystone.catalog.backends.sql.Catalog
+	# [database]
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf database connection "mysql://${keystone_db_user}:${keystone_db_password}@${host}/keystone"
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf database idle_timeout 200
+	# [ssl]
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf ssl enable False
+	# [token]
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf token expiration 3600
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf token provider keystone.token.providers.pki.Provider
+	do_command -r ${host} openstack-config --set /etc/keystone/keystone.conf token driver keystone.token.backends.sql.Token
+
+	echo "==> [${host}] start mariadb"
+	do_command -r ${host} systemctl start mariadb
+	echo "SELECT User FROM user;" | ssh ${ssh_options} ${host} mysql -u${mysql_user} -p${mysql_password} mysql | grep ${keystone_db_user} > /dev/null 2>&1
+	if [ x"$?" != x"0" ]; then
+		do_command -r ${host} mysqladmin -u ${mysql_user} password ${mysql_password}
+		for h in 127.0.0.1 ${master} ${slave} ${vip}; do
+			do_query -r ${host} "GRANT ALL PRIVILEGES ON *.* TO '${keystone_db_user}'@'${h}' IDENTIFIED BY '${keystone_db_password}';"
+			do_query -r ${host} "GRANT ALL PRIVILEGES ON *.* TO '${keystone_db_user}'@'$(resolveip -s ${h})' IDENTIFIED BY '${keystone_db_password}';"
+		done
+		do_query -r ${host} "GRANT ALL PRIVILEGES ON *.* TO '${keystone_db_user}'@'localhost' IDENTIFIED BY '${keystone_db_password}';"
+		do_query -r ${host} "GRANT ALL PRIVILEGES ON *.* TO '${keystone_db_user}'@'%' IDENTIFIED BY '${keystone_db_password}';"
+		do_query -r ${host} "FLUSH PRIVILEGES;"
+	fi
+
+	echo "==> [${host}] iptables"
+	ssh ${ssh_options} ${host} iptables -L -n | grep 'keystone' > /dev/null
+	if [ x"$?" != x"0" ]; then
+		echo "===> [${host}] add rule for keystone"
+		do_command -r ${host} iptables -I INPUT 1 -p tcp -m multiport --dports 5000,35357 -m comment --comment \'001 keystone incoming keystone\' -j ACCEPT
+		iptables_conf=/etc/sysconfig/iptables
+		do_command -r ${host} test -f ${iptables_conf} '&&' cp ${iptables_conf} ${iptables_conf}.backup_$(date '+%Y%m%d-%H%M%S')
+		do_command -r ${host} iptables-save '>' ${iptables_conf}
+	fi
+
+	do_command -r ${host} test -d /etc/keystone/ssl '||' keystone-manage pki_setup --keystone-user keystone --keystone-group keystone
+	do_command -r ${host} chown -R keystone:keystone /var/log/keystone /etc/keystone/ssl
+
+	do_command -r ${host} systemctl start openstack-keystone
+	do_command -r ${host} systemctl enable openstack-keystone
+done

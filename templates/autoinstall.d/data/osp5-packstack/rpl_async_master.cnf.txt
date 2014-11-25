@@ -1,0 +1,7 @@
+{% extends "rpl_async_common.cnf.txt" %}
+
+{% block master_slave -%}
+server_id = {{ keystone_mysql.master.ip|ipv4addr2octets(2) }}{{ keystone_mysql.master.ip|ipv4addr2octets(3) }}
+
+{% endblock -%}
+

@@ -1,0 +1,25 @@
+#!/bin/bash
+
+source ./subr.sh
+
+#vip={{ keystone_ha.service_ip }}
+mysql={{ keystone_mysql.ip }}
+controller={{ packstack.controller_ip }}
+dumpdir=/root/setup/dump
+dumpfile=dump.for_migration.keystone.ALL.sql
+
+echo "=> restore keystone database"
+do_command -r ${controller} mkdir -p ${dumpdir}
+do_command -r ${controller} mysqldump --single-transaction --master-data=1 --database keystone '>' ${dumpdir}/${dumpfile}
+do_command -r ${mysql} mkdir -p ${dumpdir}
+do_command -r ${mysql} scp ${ssh_options} ${controller}:${dumpdir}/${dumpfile} ${dumpdir}/${dumpfile}
+do_command -r ${mysql} cat ${dumpdir}/${dumpfile} '|' mysql -u${mysql_user} -p${mysql_password}
+service_id=$(mysql -u${mysql_user} -p${mysql_password} keystone -N -s -e "SELECT id FROM service WHERE type = 'identity';")
+do_query -r ${mysql} "UPDATE endpoint SET url = 'http://${mysql}:35357/v2.0' WHERE interface = 'admin' AND service_id='${service_id}';" keystone
+do_query -r ${mysql} "UPDATE endpoint SET url = 'http://${mysql}:5000/v2.0' WHERE interface = 'public' AND service_id='${service_id}';" keystone
+do_query -r ${mysql} "UPDATE endpoint SET url = 'http://${mysql}:5000/v2.0' WHERE interface = 'internal' AND service_id='${service_id}';" keystone
+
+do_command -r ${mysql} systemctl start openstack-keystone
+source ~/keystonerc_admin
+do_command -r ${mysql} keystone --os-username admin --os-password admin --os-tenant-name admin --os-auth-url 'http://127.0.0.1:5000/v2.0' user-list
+do_command -r ${mysql} keystone --os-username admin --os-password admin --os-tenant-name admin --os-auth-url 'http://127.0.0.1:5000/v2.0' endpoint-list

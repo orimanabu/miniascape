@@ -1,0 +1,204 @@
+#!/bin/bash
+
+source ./subr.sh
+
+vip={{ keystone_ha.service_ip }}
+old_master={{ keystone_mysql.master.ip }}
+new_master={{ keystone_mysql.slave.ip }}
+mysql_user=root
+mysql_password=mysql
+replication_user=rpl
+replication_password=rpl
+
+while [[ $# > 1 ]]; do
+	key="$1"
+	shift
+	case $key in
+	-o|--old-master)
+		old_master="$1"
+		shift
+		;;
+	-n|--new-master)
+		new_master="$1"
+		shift
+		;;
+	-u|--mysql-user)
+		mysql_user="$1"
+		shift
+		;;
+	-p|--mysql-password)
+		mysql_password="$1"
+		shift
+		;;
+	-U|--replication-user)
+		replication_user="$1"
+		shift
+		;;
+	-P|--replication-password)
+		replication_password="$1"
+		shift
+		;;
+	-v|--vip)
+		vip="$1"
+		shift
+		;;
+	*)
+		echo "unknown option: $key"
+		;;
+	esac
+done
+
+echo "* vip=${vip}"
+echo "* old_master=${old_master}"
+echo "* new_master=${new_master}"
+echo "* mysql_user=${mysql_user}"
+echo "* mysql_password=${mysql_password}"
+echo "* replication_user=${replication_user}"
+echo "* replication_password=${replication_password}"
+
+echo "=> delete vip on ${old_master}"
+ssh ${ssh_options} ${old_master} ip addr show dev eth0 | grep ${vip}
+if [ x"$?" = x"0" ]; then
+	do_command -r ${old_master} ip addr del ${vip}/24 dev eth0
+	do_command -r ${old_master} ip addr show dev eth0
+fi
+
+do_query -r ${new_master} "SHOW VARIABLES LIKE 'server_id';" -t
+new_server_id=$(echo "${result}" | awk '/server_id/ {print $4}')
+echo "server_id of ${new_master} (new master): ${new_server_id}"
+do_query -r ${old_master} "SHOW VARIABLES LIKE 'server_id';" -t
+old_server_id=$(echo "${result}" | awk '/server_id/ {print $4}')
+echo "server_id of ${old_master} (old master): ${old_server_id}"
+
+do_query -r ${old_master} "SHOW MASTER STATUS;" -t
+logfile=$(echo "${result}" | awk '/mariadb-bin/ {print $2}')
+logpos=$(echo "${result}" | awk '/mariadb-bin/ {print $4}')
+
+do_query -r ${new_master} "SHOW SLAVE STATUS\G"
+echo "===>"
+value=$(echo "${result}" | awk '/Slave_IO_Running/ {print $2}')
+do_test Slave_IO_Running ${value:-""} equals Yes
+value=$(echo "${result}" | awk '/Slave_SQL_Running/ {print $2}')
+do_test Slave_SQL_Running ${value:-""} equals Yes
+value=$(echo "${result}" | awk '/ +Master_Log_File/ {print $2}')
+do_test Master_Log_File ${value:-""} equals ${logfile:-""}
+value=$(echo "${result}" | awk '/Read_Master_Log_Pos/ {print $2}')
+do_test Read_Master_Log_Pos ${value:-""} equals ${logpos:-""}
+
+echo "=> stop slave io thread on ${new_master} (new master)"
+do_query -r ${new_master} "STOP SLAVE IO_THREAD;" 
+do_query -r ${new_master} "SHOW PROCESSLIST;" 
+echo "===>"
+do_test "process contains" "${result}" contains "Slave has read all relay log"
+
+echo "=> stop slave on ${new_master} (new master)"
+do_query -r ${new_master} "STOP SLAVE;" 
+do_query -r ${new_master} "SHOW SLAVE STATUS\G"
+echo "===>"
+value=$(echo "${result}" | awk '/Slave_IO_Running/ {print $2}')
+do_test Slave_IO_Running ${value:-""} equals No
+value=$(echo "${result}" | awk '/Slave_SQL_Running/ {print $2}')
+do_test Slave_SQL_Running ${value:-""} equals No
+
+echo "=> initializa master/slave settings on ${new_master} (new master)"
+do_query -r ${new_master} "RESET SLAVE;" 
+do_query -r ${new_master} "RESET MASTER;" 
+do_query -r ${new_master} "SET GLOBAL read_only = OFF;"
+do_query -r ${new_master} "SHOW MASTER STATUS;" -t
+echo "===>"
+value=$(echo "${result}" | awk '/mariadb-bin/ {print $2}')
+do_test Master_Log_File ${value:-""} contains "000001"
+do_query -r ${new_master} "SHOW SLAVE STATUS\G"
+echo "===>"
+value=$(echo "${result}" | awk '/Relay_Log_File/ {print $2}')
+do_test Relay_Log_File ${value:-""} contains "000001"
+
+echo "=> initializa master/slave settings on ${old_master} (old master)"
+do_query -r ${old_master} "RESET SLAVE;" 
+do_query -r ${old_master} "RESET MASTER;" 
+do_query -r ${old_master} "SET GLOBAL read_only = ON;"
+do_query -r ${old_master} "SHOW MASTER STATUS;" -t
+echo "===>"
+value=$(echo "${result}" | awk '/mariadb-bin/ {print $2}')
+do_test Master_Log_File ${value:-""} contains "000001"
+do_query -r ${old_master} "SHOW SLAVE STATUS\G"
+echo "===>"
+value=$(echo "${result}" | awk '/Relay_Log_File/ {print $2}')
+do_test Relay_Log_File ${value:-""} contains "000001"
+
+echo "=> stop keystone on ${old_master} (old master)"
+do_command -r ${old_master} systemctl stop openstack-keystone
+do_command -r ${old_master} systemctl disable openstack-keystone
+
+echo "=> plugins"
+do_query -r ${old_master} "SHOW PLUGINS;" -t
+echo "${result}" | grep rpl_semi_sync > /dev/null
+if [ x"$?" = x"0" ]; then
+	echo "=> semisync setting on ${old_master} (old master)"
+	do_query -r ${old_master} "SET GLOBAL rpl_semi_sync_master_enabled = 0;"
+	do_query -r ${old_master} "SET GLOBAL rpl_semi_sync_slave_enabled = 1;"
+	do_query -r ${old_master} "SHOW VARIABLES LIKE 'rpl%enabled';" -t
+	echo "===>"
+	value=$(echo "${result}" | awk '/rpl_semi_sync_master_enabled/ {print $4}')
+	do_test rpl_semi_sync_master_enabled ${value:-""} equals OFF
+	value=$(echo "${result}" | awk '/rpl_semi_sync_slave_enabled/ {print $4}')
+	do_test rpl_semi_sync_slave_enabled ${value:-""} equals ON
+
+	echo "=> semisync setting on ${new_master} (new master)"
+	do_query -r ${new_master} "SET GLOBAL rpl_semi_sync_master_enabled = 1;"
+	do_query -r ${new_master} "SET GLOBAL rpl_semi_sync_slave_enabled = 0;"
+	do_query -r ${new_master} "SHOW VARIABLES LIKE 'rpl%enabled';" -t
+	echo "===>"
+	value=$(echo "${result}" | awk '/rpl_semi_sync_master_enabled/ {print $4}')
+	do_test rpl_semi_sync_master_enabled ${value:-""} equals ON
+	value=$(echo "${result}" | awk '/rpl_semi_sync_slave_enabled/ {print $4}')
+	do_test rpl_semi_sync_slave_enabled ${value:-""} equals OFF
+fi
+
+echo "=> slave setting on ${old_master} (old master)"
+do_query -r ${old_master} "CHANGE MASTER TO MASTER_HOST='${new_master}', MASTER_USER='${replication_user}', MASTER_PASSWORD='${replication_password}';" 
+
+do_query -r ${old_master} "SHOW SLAVE STATUS\G"
+echo "===>"
+value=$(echo "${result}" | awk '/Master_Host/ {print $2}')
+do_test Master_Host ${value:-""} equals ${new_master}
+value=$(echo "${result}" | awk '/Master_User/ {print $2}')
+do_test Master_User ${value:-""} equals ${replication_user}
+
+echo "=> start slave threads on ${old_master} (old master)"
+do_query -r ${old_master} "START SLAVE;" 
+do_query -r ${old_master} "SHOW SLAVE STATUS\G"
+echo "===>"
+value=$(echo "${result}" | awk '/Slave_IO_Running/ {print $2}')
+do_test Slave_IO_Running ${value:-""} equals Yes
+value=$(echo "${result}" | awk '/Slave_SQL_Running/ {print $2}')
+do_test Slave_SQL_Running ${value:-""} equals Yes
+
+do_query -r ${new_master} "SHOW SLAVE HOSTS;" -t
+echo "===>"
+value=$(echo "${result}" | awk '/[0-9]+/ {print $2}')
+do_test "slave server_id" ${value:-""} equals ${old_server_id}
+value=$(echo "${result}" | awk '/[0-9]+/ {print $7}')
+do_test "master server_id" ${value:-""} equals ${new_server_id}
+
+echo "=> add vip on ${new_master}"
+ssh ${ssh_options} ${new_master} ip addr show dev eth0 | grep ${vip}
+if [ x"$?" != x"0" ]; then
+	do_command -r ${new_master} ip addr add ${vip}/24 dev eth0
+	do_command -r ${new_master} ip addr show dev eth0
+fi
+
+echo "=> start keystone on ${new_master} (new master)"
+do_command -r ${new_master} systemctl start openstack-keystone
+do_command -r ${new_master} systemctl enable openstack-keystone
+
+echo
+echo "=> check status"
+do_command -r ${new_master} ip addr show dev eth0
+do_command -r ${old_master} ip addr show dev eth0
+do_query -r ${new_master} "SHOW MASTER STATUS;" -t
+do_query -r ${new_master} "SHOW STATUS LIKE '%Rpl_semi%status';" -t
+do_query -r ${new_master} "SHOW STATUS LIKE '%Slave_running%';" -t
+do_query -r ${old_master} "SHOW SLAVE STATUS\G"
+do_query -r ${old_master} "SHOW STATUS LIKE '%Rpl_semi%status';" -t
+do_query -r ${old_master} "SHOW STATUS LIKE '%Slave_running%';" -t

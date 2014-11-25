@@ -1,0 +1,118 @@
+#!/bin/bash
+
+source ./subr.sh
+
+master={{ keystone_mysql.master.ip }}
+master_fqdn=$(resolveip -s ${master})
+
+slave={{ keystone_mysql.slave.ip }}
+slave_fqdn=$(resolveip -s ${slave})
+
+setupdir=/root/setup
+mycnfd=/etc/my.cnf.d
+
+dumpdir=/root/setup/dump
+flavor=for_replication
+dumpfile=dump.${flavor}.keystone.sql
+
+replication_user=rpl
+replication_password=rpl
+
+#sync_method=async
+sync_method=semisync
+
+echo "* master=${master}"
+echo "* master_fqdn=${master_fqdn}"
+echo "* slave=${slave}"
+echo "* slave_fqdn=${slave_fqdn}"
+echo "* mysql_user=${mysql_user}"
+echo "* mysql_password=${mysql_password}"
+echo "* replication_user=${replication_user}"
+echo "* replication_password=${replication_password}"
+echo "* sync_method=${sync_method}"
+
+###
+
+for host in ${master} ${slave}; do
+	echo "=> ssh test"
+	ssh ${ssh_options} ${host} uptime
+done
+
+echo "=> master/slave independent settings"
+for host in ${master} ${slave}; do
+	echo "==> [${host}] install semisync plugins"
+	do_query -r ${host} "INSTALL PLUGIN rpl_semi_sync_master SONAME 'semisync_master.so';" 
+	do_query -r ${host} "INSTALL PLUGIN rpl_semi_sync_slave SONAME 'semisync_slave.so';" 
+	do_query -r ${host} "SHOW PLUGINS;" -t
+	echo "==> [${host}] stop keystone"
+	do_command -r ${host} systemctl stop openstack-keystone
+	#do_command -r ${host} systemctl stop mariadb
+	echo "==> [${host}] create cnf"
+	do_command -r ${host} "rm -f ${mycnfd}/rpl_{async,semisync}*.cnf"
+	do_command -r ${host} cp -p ${setupdir}/rpl_${sync_method}_${host}.cnf ${mycnfd}/rpl_${sync_method}.cnf
+	#echo "==> [${host}] start mariadb"
+	#do_command -r ${host} systemctl start mariadb
+	echo "==> [${host}] restart mariadb"
+	do_command -r ${host} systemctl restart mariadb
+
+	echo "==> [${host}] cerate user account for replication"
+	do_query -r ${host} "GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '${replication_user}'@'${master}' IDENTIFIED BY '${replication_password}';" 
+	do_query -r ${host} "GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '${replication_user}'@'${master_fqdn}' IDENTIFIED BY '${replication_password}';" 
+	do_query -r ${host} "GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '${replication_user}'@'${slave}' IDENTIFIED BY '${replication_password}';" 
+	do_query -r ${host} "GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO '${replication_user}'@'${slave_fqdn}' IDENTIFIED BY '${replication_password}';" 
+	do_query -r ${host} "SELECT Host,User,Repl_slave_priv,Repl_client_priv FROM mysql.user;" -t
+
+	echo "==> [${host}] change iptables"
+	do_command -r ${host} "iptables -L -n | grep -E '${host}.*mysql replication 3306'"
+	if [ x"$?" != x"0" ]; then
+		echo "===> add rule for mysql"
+		rulenum=$(ssh ${ssh_options} ${host} iptables -L --line-numbers | grep horizon | head -n 1 | awk '{print $1}')
+		do_command -r ${host} "iptables -I INPUT ${rulenum} -s ${master}/32 -p tcp -m multiport --dports 3306 -m comment --comment 'custom: mysql replication 3306 incoming'" -j ACCEPT
+		do_command -r ${host} "iptables -I INPUT ${rulenum} -s ${slave}/32 -p tcp -m multiport --dports 3306 -m comment --comment 'custom: mysql replication 3306 incoming'" -j ACCEPT
+		do_command -r ${host} iptables -L INPUT
+		iptables_conf=/etc/sysconfig/iptables
+		do_command -r ${host} cp ${iptables_conf} ${iptables_conf}.backup_$(date '+%Y%m%d-%H%M%S')
+		do_command -r ${host} iptables-save '>' ${iptables_conf}
+	fi
+done
+
+echo "=> dump keystone db"
+mkdir -p ${dumpdir}
+do_command -r ${master} mysqldump -u${mysql_user} -p${mysql_password} --single-transaction --master-data=1 --databases keystone '>' ${dumpdir}/${dumpfile}
+do_command -r ${master} ls -l ${dumpdir}/${dumpfile}
+echo "=> transfer dump file to slave"
+do_command -r ${slave} mkdir -p ${dumpdir}
+do_command -r ${master} scp ${dumpdir}/${dumpfile} ${slave}:${dumpdir}
+do_command -r ${slave} ls -l ${dumpdir}/${dumpfile}
+
+echo "=> restore from dumped data"
+do_query -r ${slave} "DROP DATABASE keystone;" 
+do_query -r ${slave} "CREATE DATABASE keystone;" 
+do_command -r ${slave} mysql -u${mysql_user} -p${mysql_password} '<' ${dumpdir}/${dumpfile}
+
+echo "=> set master host on slave"
+do_query -r ${slave} "CHANGE MASTER TO MASTER_HOST='${master}', MASTER_USER='${replication_user}', MASTER_PASSWORD='${replication_password}';" 
+do_query -r ${slave} "SHOW SLAVE STATUS\G"
+do_query -r ${slave} "SET GLOBAL read_only = ON;"
+echo "=> start slave"
+do_query -r ${slave} "START SLAVE;" 
+do_query -r ${slave} "SHOW SLAVE STATUS\G"
+
+echo "=> sleep 3"
+sleep 3
+
+echo "=> check status"
+do_query -r ${master} "SHOW MASTER STATUS;" -t
+do_query -r ${master} "SHOW STATUS LIKE '%Rpl_semi%status';" -t
+do_query -r ${master} "SHOW STATUS LIKE '%Slave_running%';" -t
+do_query -r ${slave} "SHOW SLAVE STATUS\G"
+do_query -r ${slave} "SHOW STATUS LIKE '%Rpl_semi%status';" -t
+do_query -r ${slave} "SHOW STATUS LIKE '%Slave_running%';" -t
+
+echo "=> start openstack services on master"
+do_command -r ${master} systemctl start openstack-keystone
+#do_command -r ${master} 'source /root/keystonerc_admin && openstack-status'
+
+echo "=> start openstack services (without keystone) on slave"
+do_command -r ${master} systemctl disable openstack-keystone
+#do_command -r ${slave} 'source /root/keystonerc_admin && openstack-status'

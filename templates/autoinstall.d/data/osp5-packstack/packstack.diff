@@ -1,0 +1,21 @@
+--- ./usr/lib/python2.7/site-packages/packstack/installer/validators.py.orig	2014-09-19 18:26:27.951000000 +0900
++++ ./usr/lib/python2.7/site-packages/packstack/installer/validators.py	2014-09-19 18:38:46.323282817 +0900
+@@ -139,17 +139,7 @@
+     Raises ParamValidationError if given parameter value is not in IPv4
+     or IPv6 address.
+     """
+-    for family in (socket.AF_INET, socket.AF_INET6):
+-        try:
+-            socket.inet_pton(family, param)
+-            break
+-        except socket.error:
+-            continue
+-    else:
+-        logging.debug('validate_ip(%s, options=%s) failed.' %
+-                      (param, options))
+-        msg = 'Given host is not in IP address format: %s'
+-        raise ParamValidationError(msg % param)
++    pass
+ 
+ 
+ def validate_multi_ip(param, options=None):

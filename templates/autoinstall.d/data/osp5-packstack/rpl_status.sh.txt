@@ -1,0 +1,93 @@
+#!/bin/bash
+
+source ./subr.sh
+
+verbose="False"
+master={{ keystone_mysql.master.ip }}
+slave={{ keystone_mysql.slave.ip }}
+mysql_user=root
+mysql_password=mysql
+replication_user=rpl
+replication_password=rpl
+
+while [[ $# > 0 ]]; do
+	key="$1"
+	shift
+	case $key in
+	-m|--master)
+		master="$1"
+		shift
+		;;
+	-s|--slave)
+		slave="$1"
+		shift
+		;;
+	-u|--mysql-user)
+		mysql_user="$1"
+		shift
+		;;
+	-p|--mysql-password)
+		mysql_password="$1"
+		shift
+		;;
+	-U|--replication-user)
+		replication_user="$1"
+		shift
+		;;
+	-P|--replication-password)
+		replication_password="$1"
+		shift
+		;;
+	-v|--verbose)
+		verbose="True"
+		;;
+	*)
+		echo "unknown option: $key"
+		;;
+	esac
+done
+
+if [ x"${verbose}" = x"True" ]; then
+	echo "* verbose=${verbose}"
+	echo "* master=${master}"
+	echo "* slave=${slave}"
+	echo "* mysql_user=${mysql_user}"
+	echo "* mysql_password=${mysql_password}"
+	echo "* replication_user=${replication_user}"
+	echo "* replication_password=${replication_password}"
+
+	for host in ${master} ${slave}; do
+		if [ x"${host}" = x"${master}" ]; then
+			kind=master
+		else
+			kind=slave
+		fi
+		echo "=> ${host} (${kind})"
+		do_query -r ${host} "SHOW MASTER STATUS;" -t
+		do_query -r ${host} "SHOW SLAVE STATUS\G"
+		do_query -r ${host} "SHOW STATUS;" -t
+		do_query -r ${host} "SHOW STATUS LIKE '%Rpl_semi%status';" -t
+		do_query -r ${host} "SHOW STATUS LIKE '%Slave_running%';" -t
+		do_query -r ${host} "SHOW ENGINE INNODB STATUS\\G"
+		do_query -r ${host} "SHOW SLAVE HOSTS;" -t
+		do_query -r ${host} "SHOW PROCESSLIST;" -t
+		do_query -r ${host} "SHOW VARIABLES LIKE 'read_only';" -N
+	done
+	exit
+fi
+
+echo "=> master"
+do_query -r ${master} "SHOW MASTER STATUS;" -N
+do_query -r ${master} "SHOW STATUS LIKE '%Rpl_semi%status';" -N
+do_query -r ${master} "SHOW STATUS LIKE '%Slave_running%';" -N
+do_query -r ${master} "SHOW VARIABLES LIKE 'read_only';" -N
+echy "==> InnoDB Log Flushing Status"
+do_query -r ${master} "SHOW ENGINE INNODB STATUS\G" | grep '^Log'
+do_query -r ${master} "SHOW SLAVE HOSTS;" -t
+echo "=> slave"
+do_query -r ${slave} "SHOW SLAVE STATUS\G" | grep -E -v ':\s*$'
+do_query -r ${slave} "SHOW STATUS LIKE '%Rpl_semi%status';" -N
+do_query -r ${slave} "SHOW STATUS LIKE '%Slave_running%';" -N
+do_query -r ${slave} "SHOW VARIABLES LIKE 'read_only';" -N
+echo "==> InnoDB Log Flushing Status"
+do_query -r ${slave} "SHOW ENGINE INNODB STATUS\G" | grep '^Log'

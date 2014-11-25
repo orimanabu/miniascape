@@ -1,0 +1,15 @@
+{% extends "rpl_async_common.cnf.txt" %}
+
+{% block semisync -%}
+## semi sync settings (master)
+plugin_load=rpl_semi_sync_master=semisync_master.so
+rpl_semi_sync_master_enabled=1
+rpl_semi_sync_master_trace_level=32	# 1: general, 16: detailed, 32: network-related, 64: function-level
+rpl_semi_sync_master_timeout=1500
+
+## semi sync settings (slave)
+plugin_load=rpl_semi_sync_slave=semisync_slave.so
+rpl_semi_sync_slave_enabled=1
+rpl_semi_sync_slave_trace_level=32	# 1: general, 16: detailed, 32: network-related, 64: function-level
+{% endblock -%}
+

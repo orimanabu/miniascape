@@ -1,0 +1,31 @@
+##
+## Sample my.cnf settings for MySQL/MariaDB Semi Synchronous replication
+##
+
+[server]
+## common settings
+expire_logs_days=14
+#binlog_format=mixed	# RHEL-OSP default is 'row'
+binlog_format=row	# RHEL-OSP default is 'row'
+
+## master settings
+log_bin = /var/lib/mysql/mariadb-bin
+#binlog_do_db = keystone		# only replicate "keystone" db
+sync_binlog = 1
+innodb_flush_log_at_trx_commit = 1
+innodb_support_xa = 1
+
+## slave settings
+relay_log = /var/lib/mysql/mariadb-relay-bin
+#replicate_do_db = keystone	# only replicate "keystone" db
+skip_slave_start	# not to start replication automatically
+#log_slave_updates	# write to binlog even on slave node, only use when chaining replication servers.
+sync_master_info = 1
+sync_relay_log = 1
+sync_relay_log_info = 1
+
+{% block master_slave -%}
+{% endblock %}
+
+{% block semisync -%}
+{% endblock -%}

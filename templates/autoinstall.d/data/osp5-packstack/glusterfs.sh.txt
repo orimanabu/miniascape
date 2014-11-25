@@ -1,0 +1,97 @@
+#!/bin/sh
+
+if [ x"$#" != x"1" ]; then
+	echo "$0 op"
+	exit 1
+fi
+op=$1; shift
+
+self={{ rhs.nodes[0] }}
+other_nodes="{% for node in rhs.nodes %}{% if node != rhs.nodes[0] %}{{ node }} {% endif %}{% endfor %}"
+dev=/dev/sdb
+i=01
+
+vg=datavg
+lv=datalv
+lvpath=/dev/${vg}/${lv}
+mountpoint={{ rhs.mountpoint }}
+volprefixs="cinder glance"
+
+case ${op} in
+create)
+	for node in ${self} ${other_nodes}; do
+		echo "=> lv & xfs (${node})"
+		ssh ${node} test -e ${lvpath}
+		if [ x"$?" = x"0" ]; then
+			echo "${lvpath} exits."
+		else
+			ssh ${node} pvcreate ${dev}
+			ssh ${node} vgcreate ${vg} ${dev}
+			ssh ${node} lvcreate -n ${lv} -l 100%VG ${vg}
+			ssh ${node} mkfs.xfs -i size=512 ${lvpath}
+		fi
+
+		echo "=> mount (${node})"
+		ssh ${node} mkdir -p ${mountpoint}
+		ssh ${node} grep ${mountpoint} /etc/fstab \|\| echo "${lvpath} ${mountpoint} xfs defaults 0 0" \>\> /etc/fstab
+		ssh ${node} mount \| grep "${vg}-${lv}" \|\| mount ${mountpoint}
+		for prefix in ${volprefixs}; do
+			brick="${prefix}-brick"
+			ssh ${node} mkdir -p ${mountpoint}/${brick}
+		done
+	done
+
+	echo "=> gluster peers"
+	npeers=$(gluster peer status | grep '^Number of Peers' | sed -e 's/^Number of Peers: //')
+	if [ x"${npeers}" != x"0" ]; then
+		echo "peer already established."
+	else
+		for node in ${other_nodes}; do
+			gluster peer probe ${node}
+		done
+	fi
+
+	echo "=> gluster volume"
+	gluster vol info | grep 'No volumes present'
+	if [ x"$?" = x"0" ]; then
+		echo "vol present."
+	else
+		for prefix in ${volprefixs}; do
+			brick="${prefix}-brick"
+			vol="${prefix}-volume"
+			host_bricks=""
+			for node in ${self} ${other_nodes}; do
+				host_bricks="${host_bricks} ${node}:${mountpoint}/${brick}"
+			done
+
+			gluster volume create ${vol} ${host_bricks}
+#			if [ x"${prefix}" = x"cinder" ]; then
+				ret=$(ssh controller-1 id ${prefix} | sed -e 's/\(uid=[0-9]*\).*\(gid=[0-9]*\).*/\1 \2/')
+				echo "${prefix}: ${ret}"
+				eval ${ret}
+				gluster volume set ${vol} group virt
+				gluster volume set ${vol} storage.owner-uid ${uid}
+				gluster volume set ${vol} storage.owner-gid ${gid}
+#			fi
+			gluster volume start ${vol}
+		done
+	fi
+	echo "=> gluster volume info"
+	gluster volume info
+	echo "=> gluster volume status"
+	gluster volume status
+	;;
+delete)
+	for prefix in ${volprefixs}; do
+		vol="${prefix}-volume"
+		gluster volume stop ${vol}
+		gluster volume delete ${vol}
+	done
+	for node in ${self} ${other_nodes}; do
+		ssh ${node} umount ${lvpath}
+		ssh ${node} lvremove -f ${lvpath}
+		ssh ${node} vgremove -f ${vg}
+		ssh ${node} pvremove -f ${dev}
+	done
+	;;
+esac

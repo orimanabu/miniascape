@@ -1,0 +1,93 @@
+#!/bin/sh
+
+source ./subr.sh
+
+if [ x"$#" != x"1" ]; then
+	echo "$0 ksip"
+	exit 1
+fi
+ksip=$1; shift
+controller={{ packstack.controller_ip }}
+compute={{ packstack.compute_ips[0] }}
+region={{ region }}
+
+services="\
+openstack-keystone \
+openstack-glance-api \
+openstack-glance-registry \
+openstack-cinder-api \
+openstack-cinder-scheduler \
+openstack-cinder-volume \
+openstack-nova-api \
+openstack-nova-cert \
+openstack-nova-conductor \
+openstack-nova-consoleauth \
+openstack-nova-novncproxy \
+openstack-nova-scheduler \
+neutron-ovs-cleanup \
+neutron-server \
+neutron-openvswitch-agent \
+neutron-metadata-agent \
+neutron-dhcp-agent \
+neutron-l3-agent \
+"
+
+for user in admin demo test; do
+	rcfile=/root/keystonerc_${user}
+	if [ -f ${rcfile} ]; then
+		do_command -r ${controller} test -f ${rcfile}.orig '||' cp ${rcfile} ${rcfile}.orig
+		do_command -r ${controller} sed -i -e "s,OS_AUTH_URL=.*$,OS_AUTH_URL=http://${ksip}:5000/v2.0/," ${rcfile}
+		#do_command -r ${controller} scp ${rcfile} ${ksip}:
+	fi
+done
+
+source /root/keystonerc_admin
+do_command -r ${controller} openstack-config --set /etc/nova/nova.conf DEFAULT neutron_admin_auth_url "http://${ksip}:35357/v2.0"
+do_command -r ${controller} openstack-config --set /etc/nova/nova.conf DEFAULT os_region_name ${region}
+do_command -r ${controller} openstack-config --set /etc/nova/nova.conf DEFAULT neutron_region_name ${region}
+do_command -r ${controller} openstack-config --set /etc/nova/nova.conf keystone_authtoken auth_host ${ksip}
+do_command -r ${controller} openstack-config --set /etc/nova/nova.conf keystone_authtoken auth_uri "http://${ksip}:5000/"
+do_command -r ${controller} openstack-config --set /etc/cinder/cinder.conf DEFAULT os_region_name ${region}
+do_command -r ${controller} openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_host ${ksip}
+do_command -r ${controller} openstack-config --set /etc/cinder/api-paste.ini filter:authtoken auth_uri "http://${ksip}:5000/"
+do_command -r ${controller} openstack-config --set /etc/cinder/api-paste.ini filter:authtoken service_host ${ksip}
+do_command -r ${controller} openstack-config --set /etc/glance/glance-api.conf DEFAULT os_region_name ${region}
+do_command -r ${controller} openstack-config --set /etc/glance/glance-api.conf keystone_authtoken auth_host ${ksip}
+do_command -r ${controller} openstack-config --set /etc/glance/glance-api.conf keystone_authtoken auth_uri "http://${ksip}:5000/"
+do_command -r ${controller} openstack-config --set /etc/glance/glance-cache.conf DEFAULT auth_url  "http://${ksip}:5000/"
+do_command -r ${controller} openstack-config --set /etc/glance/glance-cache.conf DEFAULT os_region_name ${region}
+do_command -r ${controller} openstack-config --set /etc/glance/glance-registry.conf keystone_authtoken auth_host ${ksip}
+do_command -r ${controller} openstack-config --set /etc/glance/glance-registry.conf keystone_authtoken auth_uri "http://${ksip}:5000/"
+do_command -r ${controller} openstack-config --set /etc/neutron/metadata_agent.ini DEFAULT auth_url "http://${ksip}:35357/v2.0"
+do_command -r ${controller} openstack-config --set /etc/neutron/metadata_agent.ini DEFAULT auth_region ${region}
+do_command -r ${controller} openstack-config --set /etc/neutron/neutron.conf DEFAULT nova_admin_auth_url "http://${ksip}:35357/v2.0"
+do_command -r ${controller} openstack-config --set /etc/neutron/neutron.conf DEFAULT nova_region_name ${region}
+do_command -r ${controller} openstack-config --set /etc/neutron/neutron.conf DEFAULT nova_admin_tenant_id $(keystone tenant-list | awk '/service/ {print $2}')
+do_command -r ${controller} openstack-config --set /etc/neutron/neutron.conf keystone_authtoken auth_host ${ksip}
+do_command -r ${controller} openstack-config --set /etc/neutron/neutron.conf keystone_authtoken auth_uri "http://${ksip}:5000/"
+do_command -r ${controller} openstack-config --set /etc/neutron/api-paste.ini filter:authtoken auth_host ${ksip}
+do_command -r ${controller} openstack-config --set /etc/neutron/api-paste.ini filter:authtoken auth_uri "http://${ksip}:5000/"
+do_command -r ${controller} openstack-config --set /etc/neutron/plugins/ml2/ml2_conf_arista.ini ml2_arista region_name ${region}
+
+file=/etc/openstack-dashboard/local_settings
+orig=${file}.orig
+do_command -r ${controller} test -f ${orig} '||' cp ${file} ${orig}
+do_command -r ${controller} sed -i -e "s/${controller}/${ksip}/" ${file}
+
+for service in $(echo ${services} | tr ' ' '\n' | tac); do
+	do_command -r ${controller} systemctl stop ${service}
+done
+for service in ${services}; do
+	if [ x"${service}" == x"openstack-keystone" ]; then
+		continue
+	fi
+	do_command -r ${controller} systemctl start ${service}
+done
+do_command -r ${controller} systemctl disable openstack-keystone
+
+do_command -r ${compute} openstack-config --set /etc/nova/nova.conf DEFAULT neutron_admin_auth_url "http://${ksip}:35357/v2.0"
+do_command -r ${compute} openstack-config --set /etc/nova/nova.conf DEFAULT os_region_name ${region}
+do_command -r ${compute} openstack-config --set /etc/nova/nova.conf DEFAULT neutron_region_name ${region}
+do_command -r ${compute} openstack-config --set /etc/neutron/metadata_agent.ini DEFAULT auth_region ${region}
+do_command -r ${compute} openstack-config --set /etc/neutron/neutron.conf DEFAULT nova_region_name ${region}
+do_command -r ${compute} systemctl restart openstack-nova-compute

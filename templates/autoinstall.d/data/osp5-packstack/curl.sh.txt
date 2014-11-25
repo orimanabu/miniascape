@@ -1,0 +1,20 @@
+#!/bin/sh
+
+#curl -H "X-Auth-Token: {{ packstack.keystone.admin_token|default('') }}" http://{{ packstack.controller_ip }}:35357/v2.0/users | python -m json.tool
+
+token_json=$(curl -d '{"auth":{"passwordCredentials":{"username":"admin","password":"admin"},"tenantName":"admin"}}' -H 'Content-type: application/json' http://10.0.1.24:5000/v2.0/tokens 2> /dev/null)
+token_id=$(echo ${token_json} | ~/repos/JSON.sh/JSON.sh | awk '/"access","token","id"/ {print $2}' | sed -e 's/"//g')
+#echo ${token_json}
+#echo ${token_id}
+echo "==> tokens"
+echo $token_json | python -mjson.tool
+echo "==> token_id"
+echo ${token_id}
+
+tenants=$(curl -i -X GET http://10.0.1.24:35357/v2.0/tenants -H "X-Auth-Token: ${token_id}" 2> /dev/null | sed -e '/^[^{]/d')
+echo "==> tenants"
+echo ${tenants} | python -m json.tool
+for tenant_id in $(echo ${tenants} | python -mjson.tool | awk '/"id"/ {print $2}' | sed -e 's/"//g' -e 's/,$//'); do
+	echo "==> users in tenant_id: ${tenant_id}"
+	curl -i -X GET http://10.0.1.24:35357/v2.0/tenants/${tenant_id}/users -H "X-Auth-Token: ${token_id}" 2> /dev/null | sed -e '/^[^{]/d' | python -mjson.tool
+done

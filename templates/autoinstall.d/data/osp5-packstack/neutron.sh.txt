@@ -1,0 +1,209 @@
+#!/bin/bash
+
+function usage {
+	echo "$0 -r REGION -t TENANT -R ROUTER -n NETWORK -c CIDR -f FIP -v VM operation"
+	exit 1
+}
+
+source ./subr.sh
+
+tenant=demo
+region={{ region }}
+#router=router1
+#cidr="192.168.99.0/24"
+
+while [[ $# > 1 ]]; do
+	key="$1"
+	shift
+	case $key in
+	-r|--region)
+		region="$1"
+		shift
+		;;
+	-t|--tenant)
+		tenant="$1"
+		shift
+		;;
+	-R|--router)
+		_router="$1"
+		shift
+		;;
+	-n|--net|--network)
+		_net="$1"
+		shift
+		;;
+	-c|--cidr)
+		cidr="$1"
+		shift
+		;;
+	-f|--fip)
+		fip="$1"
+		shift
+		;;
+	-v|--vm)
+		vm="$1"
+		shift
+		;;
+	*)
+		echo "unknown option: $key"
+		;;
+	esac
+done
+
+if [ x"$#" == x"0" ]; then
+	echo "no operation specified."
+	usage
+fi
+op=$1; shift
+
+if [ x"${region}" == x"" -o x"${tenant}" = x"" ]; then
+	echo "no region nor tenant specified."
+	usage
+fi
+export OS_REGION_NAME=${region}
+rcfile_tenant="/root/keystonerc_${tenant}"
+rcfile_admin="/root/keystonerc_admin"
+net=${_net:-${tenant}-net}
+router=${_router:-router-${tenant}}
+subnet=${net}_subnet
+
+case ${op} in
+test)
+	x={{ neutron.external.cidr }}
+	str=$(echo ${x} | sed -e 's|^\([0-9.]*\)\.0/\([0-9]*\)|prefix=\1 prefixlen=\2|')
+	echo $str
+	eval ${str}
+	echo ${prefix}
+	echo ${prefixlen}
+	;;
+router-create)
+	str=$(echo ${cidr} | sed -e 's|^\([0-9.]*\)\.0/\([0-9]*\)|prefix=\1 prefixlen=\2|')
+	eval ${str}
+	echo "region:	${region}"
+	echo "tenant:	${tenant}"
+	echo "router:	${router}"
+	echo "net:	${net}"
+	echo "subnet:	${subnet}"
+	echo "cidr:	${cidr}"
+	echo "prefix:	${prefix}"
+	echo "prefixlen:	${prefixlen}"
+	if [ x"${router}" = x"" -o x"${net}" = x"" -o x"${cidr}" = x"" -o x"${prefix}" = x"" -o x"${prefixlen}" = x"" ]; then
+		usage
+	fi
+	source ${rcfile_admin}
+	do_command neutron net-create ${net} --tenant-id $(keystone tenant-list | awk '/'${tenant}'/ {print $2}') --router:external=True
+	source ${rcfile_tenant}
+	do_command neutron router-create ${router}
+	do_command neutron subnet-create ${net} ${cidr} --name ${subnet} --enable_dhcp False --allocation-pool start=${prefix}.{{ neutron.external.last_octet.pool_start }},end=${prefix}.{{ neutron.external.last_octet.pool_end }} --gateway=${prefix}.{{ neutron.external.last_octet.gateway }}
+	do_command neutron router-gateway-set $(neutron router-list | awk '/'${router}'/ {print $2}') $(neutron net-list | awk '/'${net}'/ {print $2}')
+	do_command neutron router-show ${router}
+	;;
+router-delete)
+	echo "region:	${region}"
+	echo "router:	${router}"
+	echo "net:	${net}"
+	echo "subnet:	${subnet}"
+	if [ x"${router}" == x"" -o x"${net}" == x"" ]; then
+		usage
+	fi
+	source ${rcfile_admin}
+	do_command neutron router-delete ${router}
+	do_command neutron subnet-delete ${subnet}
+	do_command neutron net-delete ${net}
+	;;
+router-interface-add)
+	echo "router:	${router}"
+	echo "subnet:	${subnet}"
+	if [ x"${router}" == x"" -o x"${subnet}" == x"" ]; then
+		usage
+	fi
+	source ${rcfile_tenant}
+	do_command neutron router-interface-add $(neutron router-list | awk '/'${router}'/ {print $2}') subnet=${subnet}
+	;;
+router-interface-delete)
+	echo "router:	${router}"
+	echo "subnet:	${subnet}"
+	if [ x"${router}" == x"" -o x"${subnet}" == x"" ]; then
+		usage
+	fi
+	source ${rcfile_admin}
+	do_command neutron router-interface-delete $(neutron router-list | awk '/'${router}'/ {print $2}') subnet=${subnet}
+	;;
+create)
+	str=$(echo ${cidr} | sed -e 's|^\([0-9.]*\)\.0/\([0-9]*\)|prefix=\1 prefixlen=\2|')
+	eval ${str}
+	echo "router:	${router}"
+	echo "net:	${net}"
+	echo "subnet:	${net}_subnet"
+	echo "cidr:	${cidr}"
+	echo "prefix:	${prefix}"
+	echo "prefixlen:	${prefixlen}"
+	if [ x"${router}" == x"" -o x"${net}" == x"" -o x"${cidr}" == x"" -o x"${prefix}" == x"" -o x"${prefixlen}" == x"" ]; then
+		usage
+	fi
+	source ${rcfile_admin}
+	do_command neutron net-create ${net} --tenant-id $(keystone tenant-list | awk '/'${tenant}'/ {print $2}')
+	source ${rcfile_tenant}
+	do_command neutron subnet-create ${net} ${cidr} --name ${net}_subnet --enable_dhcp True --allocation-pool start=${prefix}.{{ neutron.tenant.last_octet.pool_start }},end=${prefix}.{{ neutron.tenant.last_octet.pool_end }} --gateway=${prefix}.{{ neutron.tenant.last_octet.gateway }}
+	do_command neutron router-interface-add $(neutron router-list | awk '/'${router}'/ {print $2}') subnet=${net}_subnet
+	do_command neutron net-list
+	do_command neutron net-show ${net}
+	do_command neutron router-show ${router}
+	;;
+delete)
+	echo "router:	${router}"
+	echo "net:	${net}"
+	echo "subnet:	${net}_subnet"
+	if [ x"${router}" == x"" -o x"${net}" == x"" ]; then
+		usage
+	fi
+	source ${rcfile_admin}
+	do_command neutron router-interface-delete $(neutron router-list | awk '/'${router}'/ {print $2}') subnet=${net}_subnet
+	do_command neutron subnet-delete ${net}_subnet
+	do_command neutron net-delete ${net}
+	;;
+show)
+	if [ x"${router}" == x"" ]; then
+		usage
+	fi
+	source ${rcfile_admin}
+	do_command neutron net-list
+	do_command neutron subnet-list
+	do_command neutron router-list
+	;;
+floatingip-create-only)
+	if [ x"${net}" == x"" ]; then
+		usage
+	fi
+	source ${rcfile_admin}
+	neutron floatingip-create --tenant-id $(keystone tenant-list | awk '/'${tenant}'/ {print $2}') ${net}
+	;;
+floatingip-create-and-associate)
+	source ${rcfile_admin}
+	echo "net:	${net}"
+	echo "vm:	${vm}"
+	echo "fip:	${fip}"
+	if [ x"${net}" == x"" -o x"${vm}" == x"" -o x"${fip}" == x"" ]; then
+		usage
+	fi
+	tenant_id=$(keystone tenant-list | awk '/'${tenant}'/ {print $2}')
+	vmaddr=$(nova show ${vm} | awk '/network/ {print $5}')
+	port_id=$(neutron port-list | awk '/'${vmaddr}'/ {print $2}')
+	neutron floatingip-create --tenant-id ${tenant_id} --port-id ${port_id} --fixed-ip-address ${fip} ${net}
+	;;
+floatingip-associate)
+	echo "vm: ${vm}"
+	echo "floating ip: ${ip}"
+	if [ x"${vm}" == x"" -o x"${ip}" == x"" ]; then
+		usage
+	fi
+	source ${rcfile_tenant}
+	vmaddr=$(nova show ${vm} | awk '/network/ {print $5}')
+	portid=$(neutron port-list | awk '/'${vmaddr}'/ {print $2}')
+	echo "vmaddr:	${vmaddr}"
+	echo "port id of vm: ${portid}"
+	ipid=$(neutron floatingip-list | awk '/'${ip}'/ {print $2}')
+	echo "floatingip id: ${ipid}"
+	neutron floatingip-associate ${ipid} ${portid}
+	;;
+esac

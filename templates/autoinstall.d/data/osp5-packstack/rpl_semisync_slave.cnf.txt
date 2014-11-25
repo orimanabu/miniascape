@@ -1,0 +1,6 @@
+{% extends "rpl_semisync_common.cnf.txt" %}
+
+{% block master_slave -%}
+server_id = {{ keystone_mysql.slave.ip|ipv4addr2octets(2) }}{{ keystone_mysql.slave.ip|ipv4addr2octets(3) }}
+
+{% endblock -%}

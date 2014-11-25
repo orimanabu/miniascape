@@ -1,0 +1,17 @@
+[local-rhs-2.1-for-rhel-6-server-rpms]
+name=local rhs-2.1-for-rhel-6-server-rpms
+baseurl=http://{{ localreposerver }}/repos/rhs-2.1-for-rhel-6-server-rpms
+enabled=1
+gpgcheck=0
+
+[local-rhel-6-server-eus-rpms]
+name=local rhel-6-server-eus-rpms
+baseurl=http://{{ localreposerver }}/repos/rhel-6-server-eus-rpms
+enabled=1
+gpgcheck=0
+
+[local-rhel-sfs-for-rhel-6-server-eus-rpms]
+name=local rhel-sfs-for-rhel-6-server-eus-rpms
+baseurl=http://{{ localreposerver }}/repos/rhel-sfs-for-rhel-6-server-eus-rpms
+enabled=1
+gpgcheck=0

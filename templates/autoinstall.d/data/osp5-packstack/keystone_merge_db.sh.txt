@@ -1,0 +1,59 @@
+#!/bin/bash
+
+source ./subr.sh
+
+master={{ keystone_mysql.master.ip }}
+slave={{ keystone_mysql.slave.ip }}
+#my_ip=$(ip addr show dev eth0 | awk '/inet / {print $2}' | sed -e 's,/[0-9]\+,,')
+#if [ x"${my_ip}" = x"${master}" ]; then
+#	another_host=${slave}
+#elif [ x"${my_ip}" = x"${slave}" ]; then
+#	another_host=${master}
+#else
+#	echo "${my_ip} is neither ${master}(master) nor ${slave}(slave)"
+#	exit 1
+#fi
+my_ip=$(ip addr show dev eth0 | awk '/inet / {print $2}' | sed -e 's,/[0-9]\+,,')
+echo ${my_ip} | grep ${master} > /dev/null 2>&1
+if [ x"$?" = x"0" ]; then
+	self=${master}
+	another_host=${slave}
+else
+	echo ${my_ip} | grep ${slave} > /dev/null 2>&1
+	if [ x"$?" = x"0" ]; then
+		self=${slave}
+		another_host=${master}
+	else
+		echo "${my_ip} is neither ${master}(master) nor ${slave}(slave)"
+		exit 1
+	fi
+fi
+
+echo " * self=${self}"
+echo " * another_host=${another_host}"
+
+echo "SELECT endpoint.id, endpoint.legacy_endpoint_id, endpoint.interface, endpoint.region, endpoint.url, endpoint.extra, endpoint.enabled, service.type, service.extra FROM endpoint, service WHERE service.id = endpoint.service_id;" | ssh ${ssh_options} ${another_host} mysql -uroot -pmysql keystone -N | while read row; do
+#	echo "==="
+	variables=$(echo ${row} | perl -ne '@a = split /\s+/; print qq(id="$a[0]" legacy_endpoint_id="$a[1]" interface="$a[2]" region="$a[3]" url="$a[4]" endpoint_extra="$a[5]" enabled="$a[6]" type="$a[7]" service_extra="); print join(" ", splice(@a, 8, $#a)), qq("\n)' | sed -e "s/\"{\"/'{\"/" -e "s/\"}\"/\"}'/")
+	eval ${variables}
+#	echo " * id=${id}"
+#	echo " * legacy_endpoint_id=${legacy_endpoint_id}"
+#	echo " * interface=${interface}"
+#	echo " * region=${region}"
+#	echo " * url=${url}"
+#	echo " * endpoint_extra=${endpoint_extra}"
+#	echo " * enabled=${enabled}"
+#	echo " * type=${type}"
+#	echo " * service_extra=${service_extra}"
+
+	if [ x"${type}" = x"identity" ]; then
+		url=$(echo ${url} | sed -e "s/${another_host}/${self}/")
+	fi
+
+	service_id=$(echo "SELECT id FROM service WHERE extra = '${service_extra}';" | mysql -uroot -pmysql keystone -N -s)
+	sql="INSERT INTO endpoint VALUES ('${id}', '${legacy_endpoint_id}', '${interface}', '${region}', '${service_id}', '${url}', '${endpoint_extra}', ${enabled});"
+	echo ${sql}
+	echo ${sql} | mysql -uroot -pmysql keystone
+done
+
+echo "SELECT endpoint.id, endpoint.legacy_endpoint_id, endpoint.interface, endpoint.region, endpoint.url, endpoint.extra, endpoint.enabled, service.type, service.extra FROM endpoint, service WHERE service.id = endpoint.service_id ORDER BY region,type,interface;" | mysql -uroot -pmysql keystone -t
