@@ -1,0 +1,13 @@
+
+# permission
+{% for x in post_permission -%}
+{%   if x.chown is defined -%}
+chown {{ '-R' if x.chown.is_recursive is defined and x.chown.is_recursive }} {{ x.chown.user }}:{{ x.chown.group }} {{ x.path }}
+{%-  endif %}
+{%   if x.chmod is defined -%}
+chmod {{ '-R' if x.chmod.is_recursive is defined and x.chmod.is_recursive }} {{ x.chmod.mode }} {{ x.path }}
+{%-  endif %}
+{%   if x.restorecon is defined -%}
+restorecon {{ '-R' if x.restorecon.is_recursive is defined and x.restorecon.is_recursive }} {{ x.path }}
+{%-  endif %}
+{%- endfor %}

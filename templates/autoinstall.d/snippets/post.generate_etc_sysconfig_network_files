@@ -44,6 +44,17 @@ sed -i -e 's/^\(NM_CONTROLLED=\)/#\1/' \
        -e 's/^\(UUID=\)/#\1/' \
        -e 's/^\(HWADDR=\)/#\1/' \
        {% if noipv6 %}-e 's/^\(IPV6INIT=.*\)/IPV6INIT=no/'{% endif %} $f
+grep '^DEVICE=' $f || echo 'DEVICE={{ ni.device }}' >> $f
+{%      if ni.override_ifcfg == 'ipaddr' %}
+sed -i -e 's/^\(BOOTPROTO=\).*$/\1static/' $f
+echo 'IPADDR={{ ni.ip }}' >> $f
+echo "NETMASK={% if ni.netmask is defined %}{{ ni.netmask }}{% else %}{{ netmask|default('255.255.255.0') }}{% endif %}" >> $f
+echo '{% if ni.gateway is defined %}GATEWAY={{ ni.gateway }}{% endif %}' >> $f
+echo '{% if ni.nameserver is defined %}DNS1={{ ni.nameserver }}{% endif %}' >> $f
+{%      elif ni.override_ifcfg == 'bootproto' %}
+sed -i -e 's/^\(BOOTPROTO=\).*$/\1none/' $f
+sed -i -e 's/^\(ONBOOT=\).*$/\1yes/' $f
+{%      endif %}
 {%-  endif %}
 {% endfor -%}
 {% include "snippets/post.update_sysconfig_network" -%}

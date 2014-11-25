@@ -1,0 +1,12 @@
+
+# extract tarball
+{% for data in setup_data -%}
+{%   if data.is_directory is defined and data.is_directory -%}
+mkdir -p {{ data.topdir }}/{{ data.dst }}
+{%   endif %}
+{%   if data.is_tarball is defined and data.is_tarball -%}
+outdir={{ data.topdir|default('/root') }}
+tarball=${outdir}/setup/{{ data.dst }}
+cd ${outdir} && tar xpvf ${tarball} -C ${outdir} && cd -
+{%-  endif %}
+{%- endfor %}

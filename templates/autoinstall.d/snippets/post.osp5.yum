@@ -1,0 +1,8 @@
+
+# yum operations in post
+{% if post_yum.update is defined and post_yum.update -%}
+yum update -y
+{%- endif %}
+{% for pkg in post_yum.install -%}
+yum install -y {{ pkg }}
+{%- endfor %}

@@ -1,0 +1,4 @@
+
+# create VG named "cinder-volumes"
+pvcreate /dev/sdb
+vgcreate cinder-volumes /dev/sdb
