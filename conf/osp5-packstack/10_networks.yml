@@ -4,8 +4,8 @@
 # purpose as needed.
 
 common:
-  domain: &domain openstack.example.com
-  gateway: &gateway 192.168.200.254
+  domain: &domain mgmt.local
+  gateway: &gateway 10.0.1.254
   netmask: &netmask 255.255.255.0
 
   nameservers:
@@ -19,9 +19,9 @@ networks:
   #
   - name: external
     mode: nat
-    bridge: virbr390
-    domain: *domain
-    gateway: *gateway
+    bridge: virbr-external
+    domain: external.local
+    gateway: 172.16.99.254
     netmask: *netmask
     network: 172.16.99.0
 
@@ -36,7 +36,8 @@ networks:
   - name: mgmt
     mode: nat
     bridge: virbr-mgmt
-    gateway: 10.0.1.254
+    gateway: *gateway
+    domain: *domain
     netmask: *netmask
     network: 10.0.1.0
     dhcp:
@@ -50,6 +51,7 @@ networks:
   - name: storage
     mode: nat
     bridge: virbr-storage
+    domain: storage.local
     gateway: 10.0.0.254
     netmask: *netmask
     network: 10.0.0.0
@@ -64,6 +66,7 @@ networks:
   - name: tenant
     mode: nat
     bridge: virbr-tenant
+    domain: tenant.local
     gateway: 10.0.2.254
     netmask: *netmask
     network: 10.0.2.0

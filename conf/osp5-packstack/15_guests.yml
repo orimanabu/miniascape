@@ -4,118 +4,428 @@ storage_network: &storage_network storage
 tenant_network: &tenant_network tenant
 external_network: &external_network external
 
+
 common:
-  virtinst:
-    os_variant: rhel7
-    location: /var/lib/libvirt/images/rhel-server-7.0-x86_64-dvd.iso
+
+  localreposerver: 10.0.1.11
+  keystone_ha:
+    service_ip: 10.0.1.20
+    service_fqdn: auth01-vip.mgmt.local
+    service_host: auth01-vip
+  keystone_mysql:
+    master:
+      ip: &openstack_auth01_1_ip_0 10.0.1.13
+    slave:
+      ip: &openstack_auth01_2_ip_0 10.0.1.23
+
 
 guests:
-  - name: allinone
-    description: OpenStack All-in-One node
-
-    setup_data:
-      - src: data/openstack/Makefile
-        dst: Makefile
-      - src: data/openstack/allinone_answers.txt
-        dst: answers.txt
-
-    templates:
-      autoinst:
-        src: autoinstall.d/openstack-allinone-ks.cfg
-
-    disks:
-      - pool: default
-        format: qcow2
-        cache: none
-        size: 70  # 50G (data) + 20 G (system)
-        bus: scsi
+  - name: auth
+    description: RHEL-OSP5 authentication node
 
     virtinst:
-      cpu: host  # Needed to enable nested KVM feature
+      os_variant: rhel7
+      location: "http://10.0.1.11/repos/x86_64/7/0/"
+      extra_args: console=tty0 console=ttyS0,115200 net.ifnames=0 video=640x480
 
-    guests:
-      - hostname: allinone-0
-        fqdn: allinone-0.openstack.example.com
-        ip: &openstack_allinone_0_ip_0 192.168.200.10
-        interfaces:
-          # eth0: access from/to public network
-          - mac: "52:54:00:16:82:10"
-            ip: *openstack_allinone_0_ip_0
-            network: *public_network
-
-          # eth1: acccess from/to vms inside this node via bridges
-          - mac: "52:54:00:16:82:11"
-            ip: 192.168.200.11
-            network: *public_network
-
-        packstack:
-          controller_ip: *openstack_allinone_0_ip_0
-          compute_ips:
-            - *openstack_allinone_0_ip_0
-
-  - name: controller
-    description: RHEL-OSP5 controller node
+    kickstart:
+      install: false
 
     setup_data:
-      - src: data/openstack/Makefile
+      - src: data/osp5-packstack/Makefile
         dst: Makefile
-      - src: data/openstack/controller_answers.txt
-        dst: answers.txt
-      - src: data/openstack/localrepo.repo.txt
+      - src: data/osp5-packstack/localrepo-rhel7.repo.txt
         dst: localrepo.repo
+      - src: data/osp5-packstack/subr.sh
+        dst: subr.sh
+      - src: data/osp5-packstack/vmctl.sh
+        dst: vmctl.sh
+      - src: data/osp5-packstack/hosts.txt
+        dst: hosts
+      - src: data/osp5-packstack/service.sh
+        dst: service.sh
+      - src: data/osp5-packstack/rpl_async_master.cnf.txt
+        dst: rpl_async_master.cnf
+      - src: data/osp5-packstack/rpl_async_slave.cnf.txt
+        dst: rpl_async_slave.cnf
+      - src: data/osp5-packstack/rpl_semisync_master.cnf.txt
+        dst: rpl_semisync_master.cnf
+      - src: data/osp5-packstack/rpl_semisync_slave.cnf.txt
+        dst: rpl_semisync_slave.cnf
+      - src: data/osp5-packstack/dotfiles.tar
+        dst: dotfiles.tar
+        is_template: false
+      - src: data/osp5-packstack/user_create.sh
+        dst: user_create.sh
+      - src: data/osp5-packstack/dump_mysql.sh
+        dst: dump_mysql.sh
+      - src: data/osp5-packstack/curl.sh.txt
+        dst: curl.sh
+      - src: data/osp5-packstack/dbtable.sh
+        dst: dbtable.sh
+      - src: data/osp5-packstack/keystone_ha.sh
+        dst: keystone_ha.sh
+      - src: data/osp5-packstack/openssl.sh
+        dst: openssl.sh
+      - src: data/osp5-packstack/rpl_setup.sh.txt
+        dst: rpl_setup.sh
+      - src: data/osp5-packstack/rpl_status.sh.txt
+        dst: rpl_status.sh
+      - src: data/osp5-packstack/rpl_failover.sh.txt
+        dst: rpl_failover.sh
+      - src: data/osp5-packstack/rpl_error.sh
+        dst: rpl_error.sh
+      - src: data/osp5-packstack/keystone_merge_db.sh.txt
+        dst: keystone_merge_db.sh
+      - src: data/osp5-packstack/update_region_name.sh
+        dst: update_region_name.sh
+      - src: data/osp5-packstack/add_endpoint.sh
+        dst: add_endpoint.sh
+      - src: data/osp5-packstack/keystone_migrate_vip.sh
+        dst: keystone_migrate_vip.sh
+
+    post_yum:
+      update: true
 
     templates:
       autoinst:
         src: autoinstall.d/osp5-controller-ks.cfg
 
-    disks:
-      - pool: default
-        format: qcow2
-        cache: none
-        size: 20  # system
-        bus: scsi
-      - pool: default
-        vol: cinder-volumes-controller-1
-        format: qcow2
-        cache: none
-        size: 11  # cinder-volumes
-        bus: scsi
+    guests:
+      - hostname: auth01-1
+        fqdn: &openstack_auth01_1_fqdn auth01-1.mgmt.local
+        ip: *openstack_auth01_1_ip_0
+        mysql_role: master
+
+        disks:
+          - pool: default
+            format: qcow2
+            cache: none
+            size: 10  # system
+            bus: scsi
+
+        ip: *openstack_auth01_1_ip_0
+        interfaces:
+          # eth0: mgmt
+          - mac: "52:54:10:01:00:13"
+            ip: *openstack_auth01_1_ip_0
+            netmask: 255.255.255.0
+            network: *management_network
+#            bootproto: static
+            gateway: 10.0.1.253
+            nameserver: 10.0.1.253
+            override_ifcfg: ipaddr
+
+      - hostname: auth01-2
+        fqdn: &openstack_auth01_2_fqdn auth01-2.mgmt.local
+        ip: *openstack_auth01_2_ip_0
+        mysql_role: slave
+
+        disks:
+          - pool: default
+            format: qcow2
+            cache: none
+            size: 10  # system
+            bus: scsi
+
+        interfaces:
+          # eth0: mgmt
+          - mac: "52:54:10:01:00:23"
+            ip: *openstack_auth01_2_ip_0
+            netmask: 255.255.255.0
+            network: *management_network
+#            bootproto: static
+            gateway: 10.0.1.253
+            nameserver: 10.0.1.253
+            override_ifcfg: ipaddr
+
+  - name: controller
+    description: RHEL-OSP5 controller node
+
+    virtinst:
+      os_variant: rhel7
+      location: "http://10.0.1.11/repos/x86_64/7/0/"
+      extra_args: console=tty0 console=ttyS0,115200 net.ifnames=0 video=640x480
+
+    kickstart:
+      install: false
+
+    setup_data:
+      - src: data/osp5-packstack/Makefile
+        dst: Makefile
+      - src: data/osp5-packstack/osp5_answers.txt
+        dst: answers.txt
+      - src: data/osp5-packstack/localrepo-rhel7.repo.txt
+        dst: localrepo.repo
+      - src: data/osp5-packstack/subr.sh
+        dst: subr.sh
+      - src: data/osp5-packstack/vmctl.sh
+        dst: vmctl.sh
+      - src: data/osp5-packstack/hosts.txt
+        dst: hosts
+      - src: data/osp5-packstack/dotfiles.tar
+        dst: dotfiles.tar
+        is_template: false
+      - src: data/osp5-packstack/tenant_setup.sh.txt
+        dst: tenant_setup.sh
+      - src: data/osp5-packstack/install.sh.txt
+        dst: install.sh
+      - src: data/osp5-packstack/glance.sh.txt
+        dst: glance.sh
+      - src: data/osp5-packstack/replace_rhel7_image.sh
+        dst: replace_rhel7_image.sh
+      - src: data/osp5-packstack/neutron.sh.txt
+        dst: neutron.sh
+      - src: data/osp5-packstack/nova.sh
+        dst: nova.sh
+      - src: data/osp5-packstack/service.sh
+        dst: service.sh
+      - src: data/osp5-packstack/user_create.sh
+        dst: user_create.sh
+      - src: data/osp5-packstack/dump_mysql.sh
+        dst: dump_mysql.sh
+      - src: data/osp5-packstack/curl.sh.txt
+        dst: curl.sh
+      - src: data/osp5-packstack/dbtable.sh
+        dst: dbtable.sh
+      - src: data/osp5-packstack/keystone_ha.sh
+        dst: keystone_ha.sh
+      - src: data/osp5-packstack/openssl.sh
+        dst: openssl.sh
+      - src: data/osp5-packstack/keystone_merge_db.sh.txt
+        dst: keystone_merge_db.sh
+      - src: data/osp5-packstack/auth_setup.sh.txt
+        dst: auth_setup.sh
+      - src: data/osp5-packstack/keystone_migrate_db.sh.txt
+        dst: keystone_migrate_db.sh
+      - src: data/osp5-packstack/keystone_migrate_config.sh.txt
+        dst: keystone_migrate_config.sh
+      - src: data/osp5-packstack/update_region_name.sh
+        dst: update_region_name.sh
+      - src: data/osp5-packstack/cinder.sh
+        dst: cinder.sh
+      - src: data/osp5-packstack/flavor.sh
+        dst: flavor.sh
+      - src: data/osp5-packstack/wait_for_vm_boot.sh
+        dst: wait_for_vm_boot.sh
+      - src: data/osp5-packstack/wait_for_vm_delete.sh
+        dst: wait_for_vm_delete.sh
+      - src: data/osp5-packstack/vm_status.sh
+        dst: vm_status.sh
+      - src: data/osp5-packstack/vm_test.sh
+        dst: vm_test.sh
+
+    post_yum:
+      update: true
+      install:
+        - openstack-packstack
+
+    templates:
+      autoinst:
+        src: autoinstall.d/osp5-controller-ks.cfg
 
     guests:
-      - hostname: controller-1
-        fqdn: controller-1.mgmt.local
-        ip: &openstack_controller_1_ip_0 10.0.1.11
+      - hostname: controller01-1
+        fqdn: &openstack_controller01_1_fqdn controller01-1.mgmt.local
+        ip: &openstack_controller01_1_ip_0 10.0.1.14
+
+        disks:
+          - pool: default
+            format: qcow2
+            cache: none
+            size: 20  # system
+            bus: scsi
+          - path: /var/lib/libvirt/images/cinder-volumes-controller01-1.qcow2
+            format: qcow2
+            cache: none
+            size: 11  # cinder-volumes
+            bus: scsi
+
         interfaces:
           # eth0: mgmt
           - mac: "52:54:10:01:00:11"
-            ip: *openstack_controller_1_ip_0
+            ip: *openstack_controller01_1_ip_0
+            netmask: 255.255.255.0
             network: *management_network
+#            bootproto: static
+            gateway: 10.0.1.253
+            nameserver: 10.0.1.253
+            override_ifcfg: ipaddr
 
           # eth1: storage
           - mac: "52:54:10:00:00:11"
-            ip: 10.0.0.11
+            ip: 10.0.0.14
+            netmask: 255.255.255.0
             network: *storage_network
+            nodns: true
+            nodefroute: true
+            override_ifcfg: ipaddr
 
           # eth2: tenant
           - mac: "52:54:10:02:00:11"
-            ip: 10.0.2.11
+            ip: 10.0.2.14
+            netmask: 255.255.255.0
             network: *tenant_network
+            bootproto: dhcp
+            onboot: no
+            nodns: true
+            nodefroute: true
+            override_ifcfg: bootproto
 
           # eth3: external
           - mac: "52:54:10:03:00:11"
-            ip: 172.16.99.11
+            ip: 172.16.99.14
+            netmask: 255.255.255.0
             network: *external_network
+            bootproto: dhcp
+            onboot: no
+            nodns: true
+            nodefroute: true
+            override_ifcfg: bootproto
 
         openstack_compute_nodes:
-          - &openstack_compute_1_ip_0 &openstack_compute_2_ip_0
+          - &openstack_compute01_1_ip_0 10.0.1.15
+          - &openstack_compute01_2_ip_0 10.0.1.26
+
+        keystone_mysql:
+          ip: *openstack_auth01_1_ip_0 
+
+        neutron:
+          external:
+            cidr: 202.95.177.0/28
+            last_octet:
+              pool_start: 3
+              pool_end: 13
+              gateway: 1
+          tenant:
+            cidr: 192.168.99.0/24
+            last_octet:
+              pool_start: 100
+              pool_end: 199
+              gateway: 254
 
         packstack:
-          controller_ip: *openstack_controller_0_ip_0
+          controller_ip: *openstack_controller01_1_ip_0
           compute_ips:
-            - *openstack_compute_0_ip_0
+            - *openstack_compute01_1_ip_0
+            - *openstack_compute01_2_ip_0
+
+        region: Takaoka
+
+      - hostname: controller01-2
+        fqdn: &openstack_controller01_2_fqdn controller01-2.mgmt.local
+        ip: &openstack_controller01_2_ip_0 10.0.1.24
+
+        disks:
+          - pool: default
+            format: qcow2
+            cache: none
+            size: 20  # system
+            bus: scsi
+          - path: /var/lib/libvirt/images/cinder-volumes-controller01-2.qcow2
+            format: qcow2
+            cache: none
+            size: 11  # cinder-volumes
+            bus: scsi
+
+        interfaces:
+          # eth0: mgmt
+          - mac: "52:54:10:01:00:21"
+            ip: *openstack_controller01_2_ip_0
+            netmask: 255.255.255.0
+            network: *management_network
+#            bootproto: static
+            gateway: 10.0.1.253
+            nameserver: 10.0.1.253
+            override_ifcfg: ipaddr
+
+          # eth1: storage
+          - mac: "52:54:10:00:00:21"
+            ip: 10.0.0.24
+            netmask: 255.255.255.0
+            network: *storage_network
+            nodns: true
+            nodefroute: true
+            override_ifcfg: ipaddr
+
+          # eth2: tenant
+          - mac: "52:54:10:02:00:21"
+            ip: 10.0.2.24
+            netmask: 255.255.255.0
+            network: *tenant_network
+            bootproto: dhcp
+            onboot: no
+            nodns: true
+            nodefroute: true
+            override_ifcfg: bootproto
+
+          # eth3: external
+          - mac: "52:54:10:03:00:21"
+            ip: 172.16.99.24
+            netmask: 255.255.255.0
+            network: *external_network
+            bootproto: dhcp
+            onboot: no
+            nodns: true
+            nodefroute: true
+            override_ifcfg: bootproto
+
+        openstack_compute_nodes:
+          - &openstack_compute01_3_ip_0 10.0.1.25
+          - &openstack_compute01_4_ip_0 10.0.1.27
+
+        keystone_mysql:
+          ip: *openstack_auth01_2_ip_0 
+        neutron:
+          external:
+            cidr: 202.95.178.0/28
+            last_octet:
+              pool_start: 3
+              pool_end: 13
+              gateway: 1
+          tenant:
+            cidr: 192.168.88.0/24
+            last_octet:
+              pool_start: 150
+              pool_end: 199
+              gateway: 254
+
+        packstack:
+          controller_ip: *openstack_controller01_2_ip_0
+          compute_ips:
+            - *openstack_compute01_3_ip_0
+            - *openstack_compute01_4_ip_0
+
+        region: Toyama
 
   - name: compute
     description: OpenStack Compute node
+
+    virtinst:
+      os_variant: rhel7
+      location: "http://10.0.1.11/repos/x86_64/7/0/"
+      extra_args: console=tty0 console=ttyS0,115200 net.ifnames=0 video=640x480
+
+    kickstart:
+      install: false
+
+    setup_data:
+      - src: data/osp5-packstack/Makefile
+        dst: Makefile
+      - src: data/osp5-packstack/localrepo-rhel7.repo.txt
+        dst: localrepo.repo
+      - src: data/osp5-packstack/subr.sh
+        dst: subr.sh
+      - src: data/osp5-packstack/vmctl.sh
+        dst: vmctl.sh
+      - src: data/osp5-packstack/hosts.txt
+        dst: hosts
+      - src: data/osp5-packstack/dotfiles.tar
+        dst: dotfiles.tar
+        is_template: false
+
+    post_yum:
+      update: true
 
     templates:
       autoinst:
@@ -125,42 +435,282 @@ guests:
       cpu: host
 
     guests:
-      - hostname: compute-1
-        fqdn: compute-1.mgmt.local
-        ip: *openstack_compute_1_ip_0 10.0.1.101
+      - hostname: compute01-1
+        fqdn: compute01-1.mgmt.local
+        ip: *openstack_compute01_1_ip_0
         interfaces:
           # eth0: mgmt
           - mac: "52:54:10:01:01:01"
-            ip: *openstack_compute_1_ip_0
+            ip: *openstack_compute01_1_ip_0
+            netmask: 255.255.255.0
             network: *management_network
+            gateway: 10.0.1.253
+            nameserver: 10.0.1.253
+            override_ifcfg: ipaddr
 
           # eth1: storage
           - mac: "52:54:10:00:01:01"
-            ip: 10.0.0.101
+            ip: 10.0.0.15
+            netmask: 255.255.255.0
             network: *storage_network
+            override_ifcfg: ipaddr
 
           # eth2: tenant
           - mac: "52:54:10:02:01:01"
-            ip: 10.0.2.101
+            ip: 10.0.2.15
+            netmask: 255.255.255.0
             network: *tenant_network
+            onboot: no
+            override_ifcfg: bootproto
 
-      - hostname: compute-2
-        fqdn: compute-2.mgmt.local
-        ip: *openstack_compute_2_ip_0 10.0.1.102
+      - hostname: compute01-2
+        fqdn: compute01-2.mgmt.local
+        ip: *openstack_compute01_2_ip_0
         interfaces:
           # eth0: mgmt
           - mac: "52:54:10:01:01:02"
-            ip: *openstack_compute_2_ip_0
+            ip: *openstack_compute01_2_ip_0
+            netmask: 255.255.255.0
             network: *management_network
+            gateway: 10.0.1.253
+            nameserver: 10.0.1.253
+            override_ifcfg: ipaddr
 
           # eth1: storage
           - mac: "52:54:10:00:01:02"
-            ip: 10.0.0.102
+            ip: 10.0.0.13
+            netmask: 255.255.255.0
             network: *storage_network
+            override_ifcfg: ipaddr
 
           # eth2: tenant
           - mac: "52:54:10:02:01:02"
-            ip: 10.0.2.102
+            ip: 10.0.2.13
+            netmask: 255.255.255.0
             network: *tenant_network
+            onboot: no
+            override_ifcfg: bootproto
+
+      - hostname: compute01-3
+        fqdn: compute01-3.mgmt.local
+        ip: *openstack_compute01_3_ip_0
+        interfaces:
+          # eth0: mgmt
+          - mac: "52:54:10:01:01:03"
+            ip: *openstack_compute01_3_ip_0
+            netmask: 255.255.255.0
+            network: *management_network
+            gateway: 10.0.1.253
+            nameserver: 10.0.1.253
+            override_ifcfg: ipaddr
+
+          # eth1: storage
+          - mac: "52:54:10:00:01:03"
+            ip: 10.0.0.25
+            netmask: 255.255.255.0
+            network: *storage_network
+            override_ifcfg: ipaddr
+
+          # eth2: tenant
+          - mac: "52:54:10:02:01:03"
+            ip: 10.0.2.25
+            netmask: 255.255.255.0
+            network: *tenant_network
+            onboot: no
+            override_ifcfg: bootproto
+
+      - hostname: compute01-4
+        fqdn: compute01-4.mgmt.local
+        ip: *openstack_compute01_4_ip_0
+        interfaces:
+          # eth0: mgmt
+          - mac: "52:54:10:01:01:04"
+            ip: *openstack_compute01_4_ip_0
+            netmask: 255.255.255.0
+            network: *management_network
+            gateway: 10.0.1.253
+            nameserver: 10.0.1.253
+            override_ifcfg: ipaddr
+
+          # eth1: storage
+          - mac: "52:54:10:00:01:04"
+            ip: 10.0.0.23
+            netmask: 255.255.255.0
+            network: *storage_network
+            override_ifcfg: ipaddr
+
+          # eth2: tenant
+          - mac: "52:54:10:02:01:04"
+            ip: 10.0.2.23
+            netmask: 255.255.255.0
+            network: *tenant_network
+            onboot: no
+            override_ifcfg: bootproto
+
+  - name: rhs
+    description: Red Hat Storage node
+
+    virtinst:
+      os_variant: rhel6
+      location: "http://10.0.1.11/repos/RHS/2/1/"
+
+#    kickstart:
+#      repos:
+#        - name: "RHEL 6 x86_64 - ScalableFileSystem"
+#          baseurl: "http://ks/kstree/rhel/6/3/x86_64/ScalableFileSystem"
+
+    setup_data:
+      - src: data/osp5-packstack/Makefile
+        dst: Makefile
+      - src: data/osp5-packstack/localrepo-rhs2.1.repo.txt
+        dst: localrepo.repo
+#        install:
+#          mode: 644
+#          dst: /etc/yum.repos.d/localrepo-rhs2.1.repo
+      - src: data/osp5-packstack/vmctl.sh
+        dst: vmctl.sh
+#        is_template: false
+      - src: data/osp5-packstack/hosts.txt
+        dst: hosts
+#        is_template: false
+#        install:
+#          mode: 644
+#          dst: /etc/hosts
+#      - src: data/osp5-packstack/.inputrc
+#        dst: .inputrc
+#        is_template: false
+#        install:
+#          mode: 644
+#          dst: /root/.inputrc
+      - src: data/osp5-packstack/dotfiles.tar
+        dst: dotfiles.tar
+        is_template: false
+#        is_tarball: true
+#        topdir: /root
+#      - src: data/osp5-packstack/utils.tar
+#        dst: utils.tar
+#        is_template: false
+#        is_tarball: true
+#        topdir: /root
+#      - src: data/osp5-packstack/utils
+#        dst: utils
+#        is_directory: true
+#        is_template: false
+#        topdir: /root
+      - src: data/osp5-packstack/glusterfs.sh.txt
+        dst: glusterfs.sh
+#        install:
+#          mode: 755
+#          dst: /root/glusterfs.sh
+      - src: data/osp5-packstack/osp5-rhs.sh.txt
+        dst: osp5-rhs.sh
+#        install:
+#          mode: 755
+#          dst: /root/osp5-rhs.sh
+
+#    post_permission:
+#      - path: /root/.ssh
+#        chown:
+#          is_recursive: true
+#          user: root
+#          group: root
+#        chmod:
+#          is_recursive: false
+#          mode: 700
+#        restorecon:
+#          is_recursive: true
+
+    post_yum:
+      update: true
+
+    rhs:
+      nodes:
+        - rhs01-1.storage.local
+        - rhs01-2.storage.local
+        - rhs01-3.storage.local
+        - rhs01-4.storage.local
+      volume: vol01
+      mountpoint: /data
+
+    templates:
+      autoinst:
+        src: autoinstall.d/osp5-rhs-ks.cfg
+
+    guests:
+      - hostname: &rhs01_1_hostname rhs01-1
+        ip: &rhs01_1_ip_0 10.0.1.16
+        interfaces:
+          - mac: "52:54:10:01:02:01"
+            ip: *rhs01_1_ip_0
+            network: mgmt
+          - mac: "52:54:10:00:02:01"
+            ip: 10.0.0.16
+            network: storage
+
+        disks:
+          - pool: default
+            size: 10
+            bus: scsi
+          - path: /var/lib/libvirt/images/rhs01-1-data-1.qcow2
+            format: qcow2
+            size: 11
+            bus: scsi
+
+      - hostname: &rhs01_2_hostname rhs01-2
+        ip: &rhs01_2_ip_0 10.0.1.17
+        interfaces:
+          - mac: "52:54:10:01:02:02"
+            ip: *rhs01_2_ip_0
+            network: mgmt
+          - mac: "52:54:10:00:02:02"
+            ip: 10.0.0.17
+            network: storage
+
+        disks:
+          - pool: default
+            size: 10
+            bus: scsi
+          - path: /var/lib/libvirt/images/rhs01-2-data-1.qcow2
+            format: qcow2
+            size: 11
+            bus: scsi
+
+      - hostname: &rhs01_3_hostname rhs01-3
+        ip: &rhs01_3_ip_0 10.0.1.18
+        interfaces:
+          - mac: "52:54:10:01:02:03"
+            ip: *rhs01_3_ip_0
+            network: mgmt
+          - mac: "52:54:10:00:02:03"
+            ip: 10.0.0.18
+            network: storage
+
+        disks:
+          - pool: default
+            size: 10
+            bus: scsi
+          - path: /var/lib/libvirt/images/rhs01-3-data-1.qcow2
+            format: qcow2
+            size: 11
+            bus: scsi
+
+      - hostname: &rhs01_4_hostname rhs01-4
+        ip: &rhs01_4_ip_0 10.0.1.19
+        interfaces:
+          - mac: "52:54:10:01:02:04"
+            ip: *rhs01_4_ip_0
+            network: mgmt
+          - mac: "52:54:10:00:02:04"
+            ip: 10.0.0.19
+            network: storage
+
+        disks:
+          - pool: default
+            size: 10
+            bus: scsi
+          - path: /var/lib/libvirt/images/rhs01-4-data-1.qcow2
+            format: qcow2
+            size: 11
+            bus: scsi
 
 # vim:sw=2:ts=2:et:

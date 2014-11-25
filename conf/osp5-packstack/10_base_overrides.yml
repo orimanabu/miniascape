@@ -8,6 +8,7 @@
 site: osp5
 
 common:
+  name_prefix: ""
   rootpw: redhat
   disks:
     - pool: default
@@ -17,6 +18,21 @@ common:
       size: 20
       bus: scsi
 
+  packages:
+    add:
+      - dstat
+      - rsync
+      - man-pages
+      - bind-utils
+      - traceroute
+      - mtr
+      - git
+      - zsh
+      - screen
+      - telnet
+      - glusterfs
+      - glusterfs-fuse
+      
   partition: |
     autopart
     ignoredisk --only-use=sda
@@ -39,13 +55,13 @@ common:
 
     rhn_activationkey: *rhn_activationkey
     nova:
-      #db_pw: *packstack_pw
-      #ks_pw: *packstack_pw
+      db_pw: nova
+      ks_pw: nova
       pub_if: eth3
       private_if: eth2
-#      network:
-#        fixedrange: 192.168.32.0/24  # openstack-private network
-#        floatrange: 10.3.4.0/22      # Not used w/ neutron-based (default)
+      network:
+        fixedrange: 192.168.32.0/24  # openstack-private network
+        floatrange: 10.3.4.0/22      # Not used w/ neutron-based (default)
                                      # network in actual.
 
     neutron:
@@ -56,6 +72,31 @@ common:
         # see http://openstack.redhat.com/Floating_IP_range
         floatrange: 172.16.99.56/29  # 192.168.200.56-63 (57-62)
 
+      physnet_for_tenant: &physnet_for_tenant physnet-tenant
+      bridge_for_tenant: &bridge_for_tenant br-tenant
+      bridge_for_external: &bridge_for_external br-ex
+      bridge_for_integration: &integration_bridge br-int
+      iface_for_tenant: &iface_for_tenant eth2
+      iface_for_external: &iface_for_external eth3
+      
+      vlan_start: &vlan_start 1000
+      vlan_end: &vlan_end 1999
+      ml2_type_drivers: vlan
+      ml2_tenant_network_types: vlan
+      ml2_mechanism_drivers: openvswitch
+      ml2_vlan_ranges:
+        - physnet: *physnet_for_tenant
+          start: *vlan_start
+          end: *vlan_end
+      ovs_bridge_mappings:
+        - physnet: *physnet_for_tenant
+          bridge: *bridge_for_tenant
+      ovs_bridge_ifaces:
+        - bridge: *bridge_for_tenant
+          iface: *iface_for_tenant
+#        - bridge: *bridge_for_external
+#          iface: *iface_for_external
+
     demo:
       #floatrange: ...
 
@@ -63,9 +104,14 @@ common:
       pw: mysql
 #    qpid:
       #pw: *packstack_pw
+    amqp:
+      backend: rabbitmq
+      nss_certdb_pw: rabbitmq
+      pw: rabbitmq
     rabbitmq:
       pw: rabbitmq
     keystone:
+      user: keystone_admin
       db_pw: keystone
       admin_token: 346fc1eb96dd43f68efa197874fbd764
       admin_pw: admin
@@ -76,8 +122,10 @@ common:
     heat:
       db_pw: heat
       ks_pw: heat
+      auth_enc_key: 4b80cdf4102240ce
+      domain_password: heat
     ceilometer:
-      db_pw: ceilometer
+      secret: ceilometer
       ks_pw: ceilometer
     glance:
       db_pw: glance
