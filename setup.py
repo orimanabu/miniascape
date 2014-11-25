@@ -18,7 +18,7 @@ if os.environ.get("_SNAPSHOT_BUILD", None) is not None:
 
 
 def list_files(tdir):
-    return [f for f in glob(os.path.join(tdir, '*')) if os.path.isfile(f)]
+    return [f for f in glob(os.path.join(tdir, '*')) + glob(os.path.join(tdir, '.??*')) if os.path.isfile(f)]
 
 
 def list_data_files_g(prefix, srcdir, offset=None):

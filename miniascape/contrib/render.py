@@ -53,6 +53,8 @@ sys.stdout = codecs.getwriter(U.ENCODING)(sys.stdout)
 sys.stderr = codecs.getwriter(U.ENCODING)(sys.stderr)
 open = codecs.open
 
+def custom_filter_ipv4addr2octets(addr, index):
+    return addr.split('.')[index]
 
 def mk_template_paths(filepath, template_paths=[]):
     """
@@ -71,7 +73,10 @@ def tmpl_env(paths):
     """
     :param paths: Template search paths
     """
-    return jinja2.Environment(loader=jinja2.FileSystemLoader(paths))
+    #return jinja2.Environment(loader=jinja2.FileSystemLoader(paths))
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(paths))
+    env.filters['ipv4addr2octets'] = custom_filter_ipv4addr2octets
+    return env
 
 
 def render_s(tmpl_s, ctx, paths=[os.curdir]):

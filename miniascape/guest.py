@@ -27,6 +27,7 @@ import miniascape.template as T
 import itertools
 import os.path
 import os
+import shutil
 import subprocess
 import sys
 
@@ -69,6 +70,20 @@ def arrange_setup_data(gtmpldirs, config, gworkdir):
 
         dst = t.get("dst", src)
         out = os.path.join(gworkdir, "setup", dst)
+
+        is_template = t.get("is_template", True)
+        if not is_template:
+            for dir in gtmpldirs:
+                srcpath = os.path.join(dir, src)
+                if os.path.exists(dir) and os.path.exists(srcpath):
+                    is_directory = t.get("is_directory", False)
+                    if is_directory:
+                        if not os.path.exists(out):
+                            os.mkdir(out)
+                    else:
+                        shutil.copyfile(srcpath, out)
+            continue
+
         tpaths = gtmpldirs + \
             [os.path.join(d, os.path.dirname(src)) for d in gtmpldirs] + \
             [os.path.dirname(out)]
