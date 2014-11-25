@@ -98,7 +98,7 @@ CONFIG_QPID_SSL_SELF_SIGNED=y
 CONFIG_QPID_AUTH_USER=qpid_user
 
 # Password for user authentication
-CONFIG_QPID_AUTH_PASSWORD={{ packstack.qpid.pw|default('') }}
+CONFIG_QPID_AUTH_PASSWORD={{ packstack.amqp.pw|default('') }}
 
 # The IP address of the server on which to install Keystone
 CONFIG_KEYSTONE_HOST={{ packstack.controller_ip }}
